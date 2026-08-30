@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>时间戳转换 - Web IT Tool Box</title>
+  <meta name="description" content="Unix 时间戳与日期时间在线互转：支持秒/毫秒自动识别、实时时钟、本地与 UTC 双时区显示、相对时间计算。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🕐</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / 时间戳转换</div>
+      <h1><span class="icon-tile cat-dev">🕐</span>时间戳转换</h1>
+      <p class="sub">Unix 时间戳与日期时间互转，秒 / 毫秒自动识别，所有计算均在浏览器本地完成。</p>
+    </div>
+
+    <!-- ① 实时时钟 -->
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>当前 Unix 时间戳</div>
+      <div class="live-clock">
+        <div class="live-item">
+          <div class="lv-label"><span>秒级（10 位）</span><button class="copy-btn" data-copy-target="clockSec">复制</button></div>
+          <div class="lv-value" id="clockSec">—</div>
+        </div>
+        <div class="live-item">
+          <div class="lv-label"><span>毫秒级（13 位）</span><button class="copy-btn" data-copy-target="clockMs">复制</button></div>
+          <div class="lv-value" id="clockMs">—</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ② 时间戳 → 日期 -->
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>时间戳 → 日期时间</div>
+
+      <label class="field-label" for="tsInput">时间戳</label>
+      <input type="text" id="tsInput" class="mono" placeholder="例如：1756500000、1756500000000 或 -86400" autocomplete="off" spellcheck="false">
+
+      <div class="unit-switch">
+        <span class="field-label" style="margin:0;">单位：</span>
+        <label class="radio-label"><input type="radio" name="tsUnit" value="auto" checked> 自动识别</label>
+        <label class="radio-label"><input type="radio" name="tsUnit" value="s"> 秒</label>
+        <label class="radio-label"><input type="radio" name="tsUnit" value="ms"> 毫秒</label>
+      </div>
+
+      <div class="result-list" id="tsToDateResults" hidden>
+        <div class="result-row">
+          <span class="r-label">本地时间</span>
+          <span class="r-value" id="rLocal">—</span>
+          <button class="copy-btn" data-copy-target="rLocal">复制</button>
+        </div>
+        <div class="result-row">
+          <span class="r-label">UTC 时间</span>
+          <span class="r-value" id="rUtc">—</span>
+          <button class="copy-btn" data-copy-target="rUtc">复制</button>
+        </div>
+        <div class="result-row">
+          <span class="r-label">ISO 8601</span>
+          <span class="r-value" id="rIso">—</span>
+          <button class="copy-btn" data-copy-target="rIso">复制</button>
+        </div>
+        <div class="result-row">
+          <span class="r-label">相对时间</span>
+          <span class="r-value" id="rRel">—</span>
+          <button class="copy-btn" data-copy-target="rRel">复制</button>
+        </div>
+      </div>
+      <p class="hint" id="tsHint">输入时间戳后将自动转换。本地时区：<span id="tzName">—</span></p>
+    </section>
+
+    <!-- ③ 日期 → 时间戳 -->
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>日期时间 → 时间戳</div>
+
+      <label class="field-label" for="dtInput">选择日期与时间（本地时区）</label>
+      <input type="datetime-local" id="dtInput" step="1">
+
+      <div class="btn-row">
+        <button class="btn" id="btnNow">⚡ 设为当前时间</button>
+      </div>
+
+      <div class="result-list" id="dtToTsResults" hidden>
+        <div class="result-row">
+          <span class="r-label">秒级时间戳</span>
+          <span class="r-value" id="rSec">—</span>
+          <button class="copy-btn" data-copy-target="rSec">复制</button>
+        </div>
+        <div class="result-row">
+          <span class="r-label">毫秒级时间戳</span>
+          <span class="r-value" id="rMs">—</span>
+          <button class="copy-btn" data-copy-target="rMs">复制</button>
+        </div>
+        <div class="result-row">
+          <span class="r-label">UTC 时间</span>
+          <span class="r-value" id="rDtUtc">—</span>
+          <button class="copy-btn" data-copy-target="rDtUtc">复制</button>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    /* ---------- 通用工具 ---------- */
+    const $ = (id) => document.getElementById(id);
+    const pad = (n) => String(n).padStart(2, '0');
+    const WEEK = ['日', '一', '二', '三', '四', '五', '六'];
+
+    const fmtLocal = (d) =>
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}（周${WEEK[d.getDay()]}）`;
+    const fmtUtc = (d) =>
+      `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+
+    function relativeText(date) {
+      const diff = Date.now() - date.getTime(); // > 0 表示过去
+      const abs = Math.abs(diff);
+      const wrap = (v, unit) => (diff >= 0 ? `${v} ${unit}前` : `${v} ${unit}后`);
+      const sec = Math.round(abs / 1000);
+      if (sec < 60) return wrap(sec, '秒');
+      const min = Math.floor(sec / 60);
+      if (min < 60) return wrap(min, '分钟');
+      const hr = Math.floor(min / 60);
+      if (hr < 24) return wrap(hr, '小时');
+      const day = Math.floor(hr / 24);
+      if (day < 365) return wrap(day, '天');
+      return wrap(Math.floor(day / 365), '年');
+    }
+
+    // Toast 提示
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    // 复制按钮（统一委托）
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.copy-btn');
+      if (!btn) return;
+      const text = $(btn.dataset.copyTarget)?.textContent ?? '';
+      if (!text || text === '—') return;
+      try {
+        await navigator.clipboard.writeText(text);
+        toast('已复制到剪贴板');
+      } catch {
+        toast('复制失败，请手动选择复制');
+      }
+      btn.classList.add('copied');
+      setTimeout(() => btn.classList.remove('copied'), 1200);
+    });
+
+    /* ---------- ① 实时时钟 ---------- */
+    function tickClock() {
+      const now = Date.now();
+      $('clockSec').textContent = Math.floor(now / 1000);
+      $('clockMs').textContent = now;
+    }
+    tickClock();
+    setInterval(tickClock, 100);
+
+    /* ---------- ② 时间戳 → 日期 ---------- */
+    function parseTimestamp(str, unit) {
+      const s = str.trim().replace(/\s+/g, '');
+      if (!s) return { empty: true };
+      if (!/^[-+]?\d{1,16}$/.test(s)) return { err: '时间戳格式不正确，应为纯数字（负号表示 1970 年之前）' };
+      const n = Number(s);
+      const digits = s.replace(/^[-+]/, '');
+      let ms;
+      if (unit === 's') ms = n * 1000;
+      else if (unit === 'ms') ms = n;
+      else ms = (digits.length >= 13 || Math.abs(n) >= 1e12) ? n : n * 1000; // 自动：绝对值 >=1e12 视为毫秒
+      const date = new Date(ms);
+      if (isNaN(date.getTime())) return { err: '超出可表示的日期范围' };
+      return { date };
+    }
+
+    function convertTsToDate() {
+      const results = $('tsToDateResults');
+      const hint = $('tsHint');
+      const unit = document.querySelector('input[name="tsUnit"]:checked').value;
+      const parsed = parseTimestamp($('tsInput').value, unit);
+
+      if (parsed.empty) {
+        results.hidden = true;
+        hint.classList.remove('err');
+        hint.textContent = `输入时间戳后将自动转换。本地时区：${tzLabel()}`;
+        return;
+      }
+
+      if (parsed.err) {
+        results.hidden = true;
+        hint.textContent = parsed.err;
+        hint.classList.add('err');
+        return;
+      }
+
+      const d = parsed.date;
+      $('rLocal').textContent = fmtLocal(d);
+      $('rUtc').textContent = fmtUtc(d);
+      $('rIso').textContent = d.toISOString();
+      $('rRel').textContent = relativeText(d);
+      results.hidden = false;
+      hint.classList.remove('err');
+      hint.textContent = `输入时间戳后将自动转换。本地时区：${tzLabel()}`;
+    }
+
+    $('tsInput').addEventListener('input', convertTsToDate);
+    document.querySelectorAll('input[name="tsUnit"]').forEach(r => r.addEventListener('change', convertTsToDate));
+
+    function tzLabel() {
+      const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local';
+      const offsetMin = -new Date().getTimezoneOffset();
+      const sign = offsetMin >= 0 ? '+' : '-';
+      const oh = pad(Math.floor(Math.abs(offsetMin) / 60));
+      const om = pad(Math.abs(offsetMin) % 60);
+      return `${zone}（UTC${sign}${oh}:${om}）`;
+    }
+    $('tzName').textContent = tzLabel();
+
+    /* ---------- ③ 日期 → 时间戳 ---------- */
+    function toLocalInputValue(date) {
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+        `T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+    }
+
+    function convertDateToTs() {
+      const value = $('dtInput').value;
+      const results = $('dtToTsResults');
+      if (!value) { results.hidden = true; return; }
+      const d = new Date(value); // datetime-local 按本地时区解析
+      if (isNaN(d.getTime())) { results.hidden = true; return; }
+      $('rSec').textContent = Math.floor(d.getTime() / 1000);
+      $('rMs').textContent = d.getTime();
+      $('rDtUtc').textContent = fmtUtc(d);
+      results.hidden = false;
+    }
+
+    $('dtInput').addEventListener('input', convertDateToTs);
+    $('btnNow').addEventListener('click', () => {
+      $('dtInput').value = toLocalInputValue(new Date());
+      convertDateToTs();
+    });
+
+    // 初始化：日期选择器默认为当前时间并完成一次转换
+    $('dtInput').value = toLocalInputValue(new Date());
+    convertDateToTs();
+  </script>
+</body>
+</html>

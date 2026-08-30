@@ -1,0 +1,10 @@
+{
+  // Cloudflare Workers 配置 —— 纯静态站点，免费托管
+  // 文档：https://developers.cloudflare.com/workers/wrangler/configuration/
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "web-it-tool-box",
+  "compatibility_date": "2026-08-30",
+  "assets": {
+    "directory": "./public"
+  }
+}

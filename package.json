@@ -1,0 +1,18 @@
+{
+  "name": "cloudflare-web-it-tool-box",
+  "version": "1.0.0",
+  "private": true,
+  "description": "基于 Cloudflare 免费服务的在线编程工具箱（开发 / 设计 / 运维 / 测试常用工具）",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/junwindxqw/cloudflare_web_it_tool_box.git"
+  },
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

@@ -1,1 +1,9 @@
 .mimosa/
+
+# 依赖与本地构建产物
+node_modules/
+.wrangler/
+
+# 环境变量与系统文件
+.dev.vars
+.DS_Store
