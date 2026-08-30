@@ -491,3 +491,115 @@ input[type="datetime-local"] { color-scheme: light dark; }
   .result-row .r-label { width: auto; }
   .result-row .r-value { flex-basis: 100%; order: 3; }
 }
+
+/* ============================================
+   JSON 格式化工具
+   ============================================ */
+
+:root {
+  --tok-key: #0550ae;
+  --tok-str: #116329;
+  --tok-num: #953800;
+  --tok-bool: #cf222e;
+  --tok-null: #8250df;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --tok-key: #7ee787;
+    --tok-str: #a5d6ff;
+    --tok-num: #79c0ff;
+    --tok-bool: #ff7b72;
+    --tok-null: #d2a8ff;
+  }
+}
+
+.json-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.toolbar-spacer { flex: 1; }
+
+.json-toolbar select {
+  width: auto;
+  padding: 8px 12px;
+  font-size: 13.5px;
+}
+
+.json-input {
+  width: 100%;
+  min-height: 230px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13.5px;
+  line-height: 1.65;
+  resize: vertical;
+  outline: none;
+  tab-size: 2;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.json-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.json-output {
+  min-height: 230px;
+  max-height: 560px;
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  font-family: var(--mono);
+  font-size: 13.5px;
+  line-height: 1.65;
+  tab-size: 2;
+  white-space: pre;
+}
+.json-output .placeholder { color: var(--muted); white-space: normal; }
+
+.stat-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.stat-bar .ok { color: var(--ok); font-weight: 600; }
+.stat-bar .bad { color: var(--danger); font-weight: 600; }
+
+.err-box {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  color: var(--danger);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.err-box .err-detail {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--text-2);
+  word-break: break-all;
+}
+
+.tok-key  { color: var(--tok-key); font-weight: 600; }
+.tok-str  { color: var(--tok-str); }
+.tok-num  { color: var(--tok-num); }
+.tok-bool { color: var(--tok-bool); font-weight: 600; }
+.tok-null { color: var(--tok-null); font-weight: 600; }
+
+@media (max-width: 560px) {
+  .json-toolbar .btn { flex: 1 1 40%; }
+}

@@ -29,7 +29,7 @@
 | 分类 | 工具 | 说明 | 状态 |
 |:---:|:---|:---|:---:|
 | 🕐 开发 | **时间戳转换** | Unix 时间戳与日期互转，支持秒/毫秒自动识别、实时时钟 | ✅ 已上线 |
-| 开发 | JSON 格式化 | 格式化、压缩、校验 JSON | 🚧 开发中 |
+| 开发 | **JSON 格式化** | 格式化、压缩、校验 JSON，语法高亮与错误行列定位 | ✅ 已上线 |
 | 开发 | Base64 编解码 | 文本与 Base64 互转 | 🚧 开发中 |
 | 开发 | URL 编解码 | URL 编码与解码 | 🚧 开发中 |
 | 设计 | 颜色转换 | HEX / RGB / HSL 互转 | 🚧 开发中 |
@@ -83,7 +83,9 @@ cloudflare_web_it_tool_box
 │   ├── assets/
 │   │   └── css/style.css    # 公共样式
 │   └── tools/
-│       └── timestamp/       # 时间戳转换工具
+│       ├── timestamp/       # 时间戳转换工具
+│       │   └── index.html
+│       └── json/            # JSON 格式化工具
 │           └── index.html
 ├── wrangler.jsonc           # Cloudflare Workers 配置
 ├── package.json
@@ -100,7 +102,7 @@ cloudflare_web_it_tool_box
 
 - [x] 项目骨架与主页功能入口
 - [x] 时间戳转换
-- [ ] JSON 格式化
+- [x] JSON 格式化
 - [ ] Base64 编解码
 - [ ] URL 编解码
 - [ ] 颜色转换

@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JSON 格式化 - Web IT Tool Box</title>
+  <meta name="description" content="在线 JSON 格式化、压缩与校验工具：语法高亮显示、错误精准定位到行列、缩进可调、一键复制下载。全部处理在浏览器本地完成。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>{ }</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / JSON 格式化</div>
+      <h1><span class="icon-tile cat-dev">{ }</span>JSON 格式化</h1>
+      <p class="sub">格式化、压缩与校验 JSON 数据，语法高亮显示，错误精准定位到行列，所有处理均在浏览器本地完成。</p>
+    </div>
+
+    <!-- ① 输入 -->
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>输入 JSON</div>
+
+      <div class="json-toolbar">
+        <button class="btn primary" id="btnFormat">⚡ 格式化</button>
+        <button class="btn" id="btnMinify">📦 压缩</button>
+        <button class="btn" id="btnValidate">✔ 校验</button>
+        <select id="indentSel" title="缩进风格">
+          <option value="2">2 空格缩进</option>
+          <option value="4">4 空格缩进</option>
+          <option value="tab">Tab 缩进</option>
+        </select>
+        <span class="toolbar-spacer"></span>
+        <button class="btn" id="btnSample">🧪 示例</button>
+        <button class="btn" id="btnClear">🗑 清空</button>
+      </div>
+
+      <textarea id="jsonInput" class="json-input" placeholder='在此粘贴或输入 JSON 内容，例如：{"name": "Tool Box", "free": true}' spellcheck="false"></textarea>
+
+      <div class="stat-bar">
+        <span>字符：<span id="stChars">0</span></span>
+        <span>行数：<span id="stLines">0</span></span>
+        <span>字节（UTF-8）：<span id="stBytes">0</span></span>
+        <span id="stValid"></span>
+      </div>
+      <p class="hint">提示：在输入框内按 Ctrl + Enter 可快速格式化。</p>
+    </section>
+
+    <!-- ② 输出 -->
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>结果</div>
+
+      <div class="json-toolbar">
+        <button class="btn" id="btnCopy">📋 复制结果</button>
+        <button class="btn" id="btnDownload">⬇ 下载 .json</button>
+      </div>
+
+      <div id="jsonOutput" class="json-output"><div class="placeholder">格式化结果将显示在这里…… 点击「⚡ 格式化」或「📦 压缩」开始。</div></div>
+      <div class="stat-bar" id="outStats" hidden>
+        <span>输出：字符 <span id="outChars">0</span> · 行数 <span id="outLines">0</span> · 字节 <span id="outBytes">0</span></span>
+      </div>
+
+      <div id="errBox" class="err-box" hidden></div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+    const inputEl = $('jsonInput');
+    const outputEl = $('jsonOutput');
+    const errBox = $('errBox');
+    const outStats = $('outStats');
+    let currentOutput = ''; // 最近一次成功转换的纯文本，用于复制 / 下载
+
+    /* ---------- 基础工具 ---------- */
+    const escapeHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toast._t);
+      toast._t = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    function byteLength(s) { return new TextEncoder().encode(s).length; }
+
+    /* ---------- 语法高亮（先转义，再包裹 token） ---------- */
+    function highlight(json) {
+      return escapeHtml(json).replace(
+        /("(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(?:true|false)\b|\bnull\b|-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b)/g,
+        (m) => {
+          let cls = 'num';
+          if (m.startsWith('"')) cls = m.endsWith(':') ? 'key' : 'str';
+          else if (m === 'true' || m === 'false') cls = 'bool';
+          else if (m === 'null') cls = 'null';
+          return `<span class="tok-${cls}">${m}</span>`;
+        }
+      );
+    }
+
+    /* ---------- 解析与错误定位 ---------- */
+    function parseJSON(text) {
+      try { return { data: JSON.parse(text) }; }
+      catch (e) { return { error: String(e.message || e) }; }
+    }
+
+    // 从报错信息中提取行列号（V8: "... at position N (line X column Y)"）
+    function locateError(msg) {
+      const m = msg.match(/\(line (\d+) column (\d+)\)/);
+      if (m) return { line: Number(m[1]), column: Number(m[2]) };
+      const p = msg.match(/at position (\d+)/);
+      if (p) return posFromIndex(inputEl.value, Number(p[1]));
+      return null;
+    }
+
+    function posFromIndex(text, pos) {
+      const upto = text.slice(0, Math.min(pos, text.length));
+      const line = upto.split('\n').length;
+      const column = pos - upto.lastIndexOf('\n');
+      return { line, column };
+    }
+
+    /* ---------- 校验状态 ---------- */
+    function updateStats() {
+      const t = inputEl.value;
+      $('stChars').textContent = t.length;
+      $('stLines').textContent = t ? t.split('\n').length : 0;
+      $('stBytes').textContent = byteLength(t);
+
+      const badge = $('stValid');
+      if (!t.trim()) { badge.textContent = ''; badge.className = ''; return; }
+      const r = parseJSON(t);
+      if (r.error) { badge.textContent = '❌ 无效 JSON'; badge.className = 'bad'; }
+      else { badge.textContent = '✅ 有效 JSON'; badge.className = 'ok'; }
+    }
+
+    function showError(msg) {
+      errBox.hidden = false;
+      const loc = locateError(msg);
+      errBox.innerHTML =
+        '<strong>❌ 解析失败</strong>' +
+        `<span class="err-detail">${escapeHtml(msg)}</span>` +
+        (loc ? `<div style="margin-top:6px;">📍 错误位置：第 <strong>${loc.line}</strong> 行，第 <strong>${loc.column}</strong> 列</div>` : '');
+    }
+
+    function hideError() { errBox.hidden = true; }
+
+    /* ---------- 动作 ---------- */
+    function indentValue() {
+      const v = $('indentSel').value;
+      return v === 'tab' ? '\t' : Number(v);
+    }
+
+    function render(text) {
+      currentOutput = text;
+      outputEl.innerHTML = highlight(text);
+      $('outChars').textContent = text.length;
+      $('outLines').textContent = text.split('\n').length;
+      $('outBytes').textContent = byteLength(text);
+      outStats.hidden = false;
+    }
+
+    function transform(minify) {
+      const t = inputEl.value;
+      if (!t.trim()) {
+        hideError();
+        outputEl.innerHTML = '<div class="placeholder">请先在上方输入 JSON 内容。</div>';
+        outStats.hidden = true;
+        currentOutput = '';
+        return;
+      }
+      const r = parseJSON(t);
+      if (r.error) { showError(r.error); return; }
+      hideError();
+      render(minify ? JSON.stringify(r.data) : JSON.stringify(r.data, null, indentValue()));
+      toast(minify ? '压缩完成' : '格式化完成');
+    }
+
+    $('btnFormat').addEventListener('click', () => transform(false));
+    $('btnMinify').addEventListener('click', () => transform(true));
+
+    $('btnValidate').addEventListener('click', () => {
+      const t = inputEl.value;
+      if (!t.trim()) { toast('请先输入 JSON 内容'); return; }
+      const r = parseJSON(t);
+      if (r.error) { showError(r.error); }
+      else {
+        hideError();
+        const type = Array.isArray(r.data) ? `数组（${r.data.length} 项）`
+          : r.data === null ? 'null'
+          : typeof r.data === 'object' ? `对象（${Object.keys(r.data).length} 个键）`
+          : typeof r.data;
+        toast(`✅ JSON 格式有效，顶层为${type}`);
+      }
+    });
+
+    $('btnCopy').addEventListener('click', async () => {
+      if (!currentOutput) { toast('暂无可复制的结果'); return; }
+      try {
+        await navigator.clipboard.writeText(currentOutput);
+        toast('已复制到剪贴板');
+      } catch { toast('复制失败，请手动选择复制'); }
+    });
+
+    $('btnDownload').addEventListener('click', () => {
+      if (!currentOutput) { toast('暂无可下载的结果'); return; }
+      const blob = new Blob([currentOutput], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'formatted.json';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    });
+
+    $('btnSample').addEventListener('click', () => {
+      inputEl.value = JSON.stringify({
+        name: 'Cloudflare Web IT Tool Box',
+        version: '1.0.0',
+        free: true,
+        features: ['时间戳转换', 'JSON 格式化', 'Base64 编解码'],
+        deploy: { platform: 'Cloudflare Workers', region: 'global', cost: 0 },
+        config: { indent: 2, minify: false, highlight: true, tags: null }
+      });
+      updateStats();
+      transform(false);
+    });
+
+    $('btnClear').addEventListener('click', () => {
+      inputEl.value = '';
+      currentOutput = '';
+      outputEl.innerHTML = '<div class="placeholder">格式化结果将显示在这里…… 点击「⚡ 格式化」或「📦 压缩」开始。</div>';
+      outStats.hidden = true;
+      hideError();
+      updateStats();
+      inputEl.focus();
+    });
+
+    inputEl.addEventListener('input', updateStats);
+    inputEl.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); transform(false); }
+    });
+
+    updateStats();
+  </script>
+</body>
+</html>
