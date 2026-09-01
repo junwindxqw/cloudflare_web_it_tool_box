@@ -7,3 +7,6 @@ node_modules/
 # 环境变量与系统文件
 .dev.vars
 .DS_Store
+
+# ZCode 会话与计划文件
+.zcode/
