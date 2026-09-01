@@ -4,66 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AI 图片超分辨率 - Web IT Tool Box</title>
-  <meta name="description" content="在线 AI 图片超分辨率工具：基于 ESRGAN 模型放大 2 倍并重建细节，让低清模糊照片与截图真正变清晰。处理在浏览器本地完成，图片不上传。">
+  <meta name="description" content="在线 AI 图片超分辨率工具：基于 ESRGAN 与 Swin2SR 神经网络在浏览器本地放大图片 2-4 倍并重建细节，让低清模糊照片真正变清晰。处理在浏览器本地完成，图片不上传。">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🪄</text></svg>">
   <link rel="stylesheet" href="/assets/css/style.css">
-  <!-- 本地 vendor：TF.js + Upscaler + ESRGAN-slim 模型（UMD，无依赖外部 CDN） -->
-  <script>window.V=$(id=>document.getElementById(id));</script>
-  <script src="/vendor/tf.min.js?v=1"></script>
-  <script src="/vendor/upscaler.min.js?v=1"></script>
-  <script src="/vendor/esrgan-slim-2x.min.js?v=1"></script>
-<script src="/vendor/default-model.min.js?v=1"></script>
-  <script>
-    // 重写 fetch：把 upscaler 内部对 jsdelivr CDN 的模型请求拦截重定向到本地
-    // (public/upjs/esrgan-slim@1/models/x2/ 与 bin 文件)。这是最稳的拦截层，
-    // 因为 upscaler 内部使用 tfjs 的 loadLayersModel，而 tfjs 使用 fetch 加载 model.json。
-    (function () {
-      const _origFetch = window.fetch.bind(window);
-      window.fetch = function (input, init) {
-        let url = typeof input === 'string' ? input : (input && input.url);
-        if (typeof url === 'string') {
-          // 把任意 jsdelivr/unpkg 上的 ESRGAN 模型路径映射到本地
-          const m = url.match(/^https?:\/\/(?:cdn\.jsdelivr\.net\/npm|unpkg\.com)\/[^/]+\/(models\/x\d+\/.+)$/);
-          if (m) {
-            const localUrl = location.origin + '/upjs/esrgan-slim@1/' + m[1];
-            console.log('[upscale] CDN → 本地:', url, '→', localUrl);
-            return _origFetch(localUrl, init);
-          }
-        }
-        return _origFetch(input, init);
-      };
-    })();
-    // 同时 patch tfjs 加载函数作为兜底（防止 tfjs 内部使用非 fetch 的加载路径）
-    function _patchTf() {
-      if (!window.tf || !window.tf.loadLayersModel) { setTimeout(_patchTf, 50); return; }
-      const _llm = window.tf.loadLayersModel.bind(window.tf);
-      const _lgm = window.tf.loadGraphModel.bind(window.tf);
-      window.tf.loadLayersModel = function (path, ...rest) {
-        const u = typeof path === 'string' ? path : (path && path.path);
-        if (typeof u === 'string') {
-          const m = u.match(/jsdelivr\.net\/npm\/[^/]+\/(models\/x\d+\/.+)$/);
-          if (m) {
-            const localUrl = location.origin + '/upjs/esrgan-slim@1/' + m[1];
-            console.log('[upscale] tf.loadLayersModel → 本地:', localUrl);
-            return _llm(localUrl, ...rest);
-          }
-        }
-        return _llm(path, ...rest);
-      };
-      window.tf.loadGraphModel = function (path, ...rest) {
-        const u = typeof path === 'string' ? path : (path && path.path);
-        if (typeof u === 'string') {
-          const m = u.match(/jsdelivr\.net\/npm\/[^/]+\/(models\/x\d+\/.+)$/);
-          if (m) {
-            const localUrl = location.origin + '/upjs/esrgan-slim@1/' + m[1];
-            return _lgm(localUrl, ...rest);
-          }
-        }
-        return _lgm(path, ...rest);
-      };
-    }
-    _patchTf();
-  </script>
 </head>
 <body>
 
@@ -83,7 +26,7 @@
     <div class="page-head">
       <div class="crumbs"><a href="/">工具箱</a> / AI 图片超分辨率</div>
       <h1><span class="icon-tile cat-design">🪄</span>AI 图片超分辨率</h1>
-      <p class="sub">基于 ESRGAN 神经网络在浏览器本地放大图片 2 倍并重建细节，让低清模糊照片真正变清晰。</p>
+      <p class="sub">ESRGAN 与 Swin2SR 两种 AI 模型在浏览器本地放大图片并重建细节，让低清模糊照片真正变清晰。所有处理在本地完成，图片不上传。</p>
     </div>
 
     <!-- ① 上传 -->
@@ -92,31 +35,37 @@
       <div class="dropzone" id="dropzone">
         <span class="dz-icon">🪄</span>
         <span class="dz-main">点击选择或拖拽低清/模糊图片到此处</span>
-        <span class="dz-sub">支持 JPG / PNG / WebP；推荐 &lt;2000×2000 像素，2 倍放大后输出</span>
+        <span class="dz-sub">支持 JPG / PNG / WebP</span>
         <input type="file" id="fileInput" accept="image/*">
       </div>
       <div id="fileInfo" class="stat-bar" hidden></div>
       <div id="errBox" class="err-box" hidden></div>
     </section>
 
-    <!-- ② 处理面板 -->
+    <!-- ② 模型选择与处理 -->
     <section class="panel" id="workPanel" hidden>
-      <div class="panel-title"><span class="dot"></span>AI 模型与处理</div>
+      <div class="panel-title"><span class="dot"></span>选择 AI 模型</div>
 
-      <div class="stat-bar" style="margin-top:0;">
+      <div class="seg" id="modelSeg">
+        <button class="active" data-model="esrgan">ESRGAN-slim ×2（快速，0.9 MB）</button>
+        <button data-model="swin2sr">Swin2SR ×4（更强，22.7 MB）</button>
+      </div>
+      <p class="hint" id="modelDesc">ESRGAN-slim：体积小、加载快，适合轻度模糊或截图；x2 倍放大。</p>
+
+      <div class="stat-bar" style="margin-top:14px;">
         <span id="modelStatus">⏳ 模型：未加载</span>
       </div>
       <div id="modelProgress" hidden style="margin:8px 0 0;">
         <div style="height:6px; background:var(--surface-2); border:1px solid var(--border); border-radius:999px;">
           <div id="modelBar" style="height:100%; width:0%; background:linear-gradient(90deg, var(--accent), #60a5fa); border-radius:999px; transition:width 0.15s;"></div>
         </div>
-        <p class="hint" id="modelHint" style="margin-top:6px;">准备下载模型权重（约 1 MB）……</p>
+        <p class="hint" id="modelHint" style="margin-top:6px;">准备加载……</p>
       </div>
 
       <div class="btn-row">
-        <button class="btn primary" id="btnRun" disabled>🪄 AI 超分辨率放大 2 倍</button>
+        <button class="btn primary" id="btnRun" disabled>🪄 开始 AI 超分</button>
       </div>
-      <p class="hint" id="processHint" hidden>⏳ 正在推理，请稍候（首次约需 5-15 秒，依赖设备性能）……</p>
+      <p class="hint" id="processHint" hidden>⏳ 正在推理，请稍候（首次约需 5-30 秒，依赖设备性能）……</p>
     </section>
 
     <!-- ③ 结果对比 -->
@@ -126,12 +75,12 @@
         <div class="cmp">
           <div class="cmp-label">原图</div>
           <img id="cmpSrc" alt="原图">
-            <div class="stat-bar" style="justify-content:center;"><span id="cmpSrcInfo">—</span></div>
+          <div class="stat-bar" style="justify-content:center;"><span id="cmpSrcInfo">—</span></div>
         </div>
         <div class="cmp">
           <div class="cmp-label">AI 放大后</div>
           <img id="cmpOut" alt="AI 超分结果">
-            <div class="stat-bar" style="justify-content:center;"><span id="cmpOutInfo">—</span></div>
+          <div class="stat-bar" style="justify-content:center;"><span id="cmpOutInfo">—</span></div>
         </div>
       </div>
       <div class="btn-row">
@@ -150,15 +99,79 @@
   <div id="toast">已开始下载</div>
 
   <script src="/assets/js/image-utils.js"></script>
+
+  <!-- ESRGAN-slim 模型（懒加载：先放 CSS，JS 之后动态创建 script 标签） -->
+  <script>
+    /* 共享状态 */
+    window.UPS = {
+      model: 'esrgan',         // 'esrgan' | 'swin2sr'
+      currentBackend: null,     // 'esrgan' | 'swin2sr'
+      upscaler: null,           // ESRGAN-slim 用的 Upscaler 实例
+      swin2srPipe: null,        // Swin2SR transformers.js pipeline
+      loading: false,
+      ready: false,
+    };
+  </script>
+
+  <script src="/vendor/tf.min.js?v=2"></script>
+  <script src="/vendor/upscaler.min.js?v=2"></script>
+  <script src="/vendor/esrgan-slim-2x.min.js?v=2"></script>
+  <script src="/vendor/default-model.min.js?v=2"></script>
+  <script>
+    // ESRGAN-slim UMD 包装：把 _internals 指向本地 vendor 模型文件路径，
+    // 但 upscaler 内部会强制走 CDN URL 重写，所以用 fetch + tfjs 双层拦截把
+    // jsdelivr 的 ESRGAN-slim 模型 URL 重定向到本地 /upjs/esrgan-slim@1/...
+    (function () {
+      const _origFetch = window.fetch.bind(window);
+      window.fetch = function (input, init) {
+        let url = typeof input === 'string' ? input : (input && input.url);
+        if (typeof url === 'string') {
+          const m = url.match(/^https?:\/\/(?:cdn\.jsdelivr\.net\/npm|unpkg\.com)\/[^/]+\/(models\/x\d+\/.+)$/);
+          if (m) {
+            const localUrl = location.origin + '/upjs/esrgan-slim@1/' + m[1];
+            console.log('[upscale] ESRGAN CDN → 本地:', url, '→', localUrl);
+            return _origFetch(localUrl, init);
+          }
+        }
+        return _origFetch(input, init);
+      };
+      function _patchTf() {
+        if (!window.tf || !window.tf.loadLayersModel) { setTimeout(_patchTf, 50); return; }
+        const _llm = window.tf.loadLayersModel.bind(window.tf);
+        const _lgm = window.tf.loadGraphModel.bind(window.tf);
+        const wrap = (orig, name) => function (path, ...rest) {
+          const u = typeof path === 'string' ? path : (path && path.path);
+          if (typeof u === 'string') {
+            const m = u.match(/jsdelivr\.net\/npm\/[^/]+\/(models\/x\d+\/.+)$/);
+            if (m) {
+              const localUrl = location.origin + '/upjs/esrgan-slim@1/' + m[1];
+              console.log('[upscale] tf.' + name + ' → 本地:', localUrl);
+              return orig.call(this, localUrl, ...rest);
+            }
+          }
+          return orig.call(this, path, ...rest);
+        };
+        window.tf.loadLayersModel = wrap(_llm, 'loadLayersModel');
+        window.tf.loadGraphModel = wrap(_lgm, 'loadGraphModel');
+      }
+      _patchTf();
+    })();
+  </script>
+
+  <script type="module">
+    // transformers.js 是 ES 模块：从 src 加载，并把 transformers、pipeline 暴露到 window
+    import * as tfns from '/vendor/transformers.min.js?v=2';
+    window.transformers = tfns;
+    console.log('[upscale] transformers.js 模块已就绪，导出:', Object.keys(tfns).slice(0, 10));
+  </script>
+
   <script>
     'use strict';
     const $ = (id) => document.getElementById(id);
     let current = null;
     let output = null;
     let runToken = 0;
-    let upscaler = null;
-    let modelReady = false;
-    let modelLoading = false;
+    let outputScale = 2;  // 由当前模型决定（esrgan=2, swin2sr=4）
 
     function toast(msg) {
       const el = $('toast');
@@ -175,53 +188,104 @@
       el.className = kind;
     }
 
-    function checkDeps() {
-      if (typeof tf === 'undefined') return 'TensorFlow.js 未加载（/vendor/tf.min.js）';
-      if (typeof Upscaler === 'undefined') return 'Upscaler 引擎未加载（/vendor/upscaler.min.js）';
-      if (typeof ESRGANSlim2x === 'undefined') return 'ESRGAN-slim 模型定义未加载（/vendor/esrgan-slim-2x.min.js）';
-      return null;
-    }
-
-    async function loadModel() {
-      if (modelReady) return upscaler;
-      if (modelLoading) {
-        await new Promise(r => { const i = setInterval(() => { if (modelReady || !modelLoading) { clearInterval(i); r(); } }, 100); });
-        return upscaler;
+    /* ========== ESRGAN-slim (Upscaler.js + tfjs) ========== */
+    async function loadEsrgan() {
+      if (window.UPS.currentBackend === 'esrgan' && window.UPS.ready) return true;
+      if (window.UPS.loading) {
+        await new Promise(r => { const i = setInterval(() => { if (window.UPS.ready || !window.UPS.loading) { clearInterval(i); r(); } }, 100); });
+        return window.UPS.ready && window.UPS.currentBackend === 'esrgan';
       }
-      modelLoading = true;
+      window.UPS.loading = true;
       $('modelProgress').hidden = false;
       $('modelBar').style.width = '0%';
-      $('modelHint').textContent = '正在初始化 AI 引擎……';
+      $('modelHint').textContent = '正在初始化 ESRGAN 引擎……';
       setStatus('⏳ 模型：加载中');
       try {
-        const depErr = checkDeps();
-        if (depErr) throw new Error(depErr);
-        $('modelBar').style.width = '20%';
-        $('modelHint').textContent = 'TF.js 与 Upscaler 已就绪，正在加载 ESRGAN 模型权重……';
-
-        upscaler = new Upscaler({ model: ESRGANSlim2x });
-
-        // 预热：触发模型权重下载
-        await upscaler.upscale(new Image(64, 64), { output: 'src' });
+        if (typeof tf === 'undefined') throw new Error('TensorFlow.js 未加载');
+        if (typeof Upscaler === 'undefined') throw new Error('Upscaler 引擎未加载');
+        if (typeof ESRGANSlim2x === 'undefined') throw new Error('ESRGAN-slim 模型定义未加载');
+        $('modelBar').style.width = '30%';
+        $('modelHint').textContent = '正在加载 ESRGAN-slim 模型权重……';
+        window.UPS.upscaler = new Upscaler({ model: ESRGANSlim2x });
+        await window.UPS.upscaler.upscale(new Image(64, 64), { output: 'src' });
         $('modelBar').style.width = '100%';
-        $('modelHint').textContent = '模型加载完成，可以开始处理。';
-        modelReady = true;
+        $('modelHint').textContent = '模型加载完成';
+        window.UPS.currentBackend = 'esrgan';
+        window.UPS.ready = true;
+        outputScale = 2;
         setStatus('✅ 模型：已就绪（ESRGAN-slim ×2）', 'ok');
         setTimeout(() => { $('modelProgress').hidden = true; }, 1200);
-        return upscaler;
+        return true;
       } catch (e) {
         setStatus('❌ 模型：加载失败');
         $('modelHint').textContent = (e.message || e);
         throw e;
       } finally {
-        modelLoading = false;
+        window.UPS.loading = false;
       }
     }
 
+    /* ========== Swin2SR x4 (transformers.js + onnxruntime-web) ========== */
+    async function loadSwin2sr() {
+      if (window.UPS.currentBackend === 'swin2sr' && window.UPS.ready) return true;
+      if (window.UPS.loading) {
+        await new Promise(r => { const i = setInterval(() => { if (window.UPS.ready || !window.UPS.loading) { clearInterval(i); r(); } }, 100); });
+        return window.UPS.ready && window.UPS.currentBackend === 'swin2sr';
+      }
+      window.UPS.loading = true;
+      $('modelProgress').hidden = false;
+      $('modelBar').style.width = '0%';
+      $('modelHint').textContent = '正在初始化 transformers.js……';
+      setStatus('⏳ 模型：加载中');
+
+      try {
+        if (typeof window.transformers === 'undefined') throw new Error('transformers.js 未加载');
+
+        // transformers.js 必须从远端 CDN 加载模型（HF Hub / jsdelivr），
+        // 因为其内部硬编码 remoteHost 与远程预训练机制。
+        window.transformers.env.allowLocalModels = false;
+        window.transformers.env.useBrowserCache = true;
+        const MODEL_PATH = 'onnx-community/swin2SR-realworld-sr-x4-64-bsrgan-psnr-ONNX';
+
+        $('modelBar').style.width = '30%';
+        $('modelHint').textContent = '首次加载 ONNX 运行时与模型权重（约 30 MB，需联网）……';
+        const { pipeline } = window.transformers;
+
+        const pipe = await pipeline('image-to-image', MODEL_PATH, {
+          dtype: 'q4',
+          device: 'webgpu',     // 优先 WebGPU，否则自动回退 wasm
+        }).catch(async (e) => {
+          console.warn('[upscale] WebGPU 不可用，回退 wasm：', e.message);
+          return await pipeline('image-to-image', MODEL_PATH, { dtype: 'q4', device: 'wasm' });
+        });
+        window.UPS.swin2srPipe = pipe;
+        $('modelBar').style.width = '100%';
+        $('modelHint').textContent = 'Swin2SR 模型加载完成';
+        window.UPS.currentBackend = 'swin2sr';
+        window.UPS.ready = true;
+        outputScale = 4;
+        setStatus('✅ 模型：已就绪（Swin2SR ×4）', 'ok');
+        setTimeout(() => { $('modelProgress').hidden = true; }, 1200);
+        return true;
+      } catch (e) {
+        setStatus('❌ 模型：加载失败');
+        $('modelHint').textContent = (e.message || e);
+        throw e;
+      } finally {
+        window.UPS.loading = false;
+      }
+    }
+
+    async function ensureModel() {
+      if (window.UPS.model === 'swin2sr') return await loadSwin2sr();
+      return await loadEsrgan();
+    }
+
+    /* ========== 处理流程 ========== */
     async function process() {
       if (!current) return;
-      try { await loadModel(); } catch (e) { showErr(e.message || e); return; }
-      if (!modelReady) return;
+      try { await ensureModel(); } catch (e) { showErr(e.message || e); return; }
+      if (!window.UPS.ready) return;
 
       const token = ++runToken;
       $('processHint').hidden = false;
@@ -230,37 +294,45 @@
       if (token !== runToken) return;
 
       try {
-        const w = current.width, h = current.height;
-        if (w * h > 4_000_000) throw new Error('图片过大（超过 400 万像素），请先缩小后再处理');
-
         const t0 = performance.now();
-        const src = await upscaler.upscale(current.img, {
-          output: 'src',
-          patchSize: 64,
-          padding: 4,
-          progress: (rate) => {
-            if (token !== runToken) return;
-            $('modelBar').style.width = (rate * 100).toFixed(0) + '%';
-            $('modelHint').textContent = `推理中：${(rate * 100).toFixed(0)}%`;
-          }
-        });
+        let outCanvas;
+        if (window.UPS.currentBackend === 'swin2sr') {
+          // Swin2SR 走 transformers.js pipeline
+          const url = URL.createObjectURL(await dataUrlFromImage(current.img));
+          const result = await window.UPS.swin2srPipe(url);
+          URL.revokeObjectURL(url);
+          if (token !== runToken) return;
+          outCanvas = await tensorOrCanvasToCanvas(result);
+        } else {
+          // ESRGAN-slim 走 Upscaler.js
+          const src = await window.UPS.upscaler.upscale(current.img, {
+            output: 'src',
+            patchSize: 64,
+            padding: 4,
+            progress: (rate) => {
+              if (token !== runToken) return;
+              $('modelBar').style.width = (rate * 100).toFixed(0) + '%';
+              $('modelHint').textContent = `推理中：${(rate * 100).toFixed(0)}%`;
+            }
+          });
+          if (token !== runToken) return;
+          const tmp = new Image();
+          await new Promise((res, rej) => {
+            tmp.onload = res; tmp.onerror = rej;
+            tmp.src = typeof src === 'string' ? src : src.src;
+          });
+          outCanvas = document.createElement('canvas');
+          outCanvas.width = tmp.naturalWidth; outCanvas.height = tmp.naturalHeight;
+          outCanvas.getContext('2d').drawImage(tmp, 0, 0);
+        }
         if (token !== runToken) return;
 
-        const c = document.createElement('canvas');
-        const tmp = new Image();
-        await new Promise((res, rej) => {
-          tmp.onload = res; tmp.onerror = rej;
-          tmp.src = typeof src === 'string' ? src : src.src;
-        });
-        c.width = tmp.naturalWidth; c.height = tmp.naturalHeight;
-        c.getContext('2d').drawImage(tmp, 0, 0);
-
-        const blob = await IMG.canvasToBlob(c, 'image/png');
+        const blob = await IMG.canvasToBlob(outCanvas, 'image/png');
         if (token !== runToken) return;
-        output = { blob, mime: 'image/png', width: c.width, height: c.height };
+        output = { blob, mime: 'image/png', width: outCanvas.width, height: outCanvas.height };
 
         $('cmpOut').src = URL.createObjectURL(blob);
-        $('cmpOutInfo').textContent = `${c.width}×${c.height}（×2）· ${IMG.formatBytes(blob.size)}`;
+        $('cmpOutInfo').textContent = `${outCanvas.width}×${outCanvas.height}（×${outputScale}）· ${IMG.formatBytes(blob.size)}`;
         hideErr();
         toast(`✅ 处理完成（${Math.round(performance.now() - t0)}ms）`);
       } catch (e) {
@@ -273,6 +345,56 @@
       }
     }
 
+    // 辅助：Swin2SR 输出（RawImage / OffscreenCanvas）转 HTMLCanvasElement
+    async function tensorOrCanvasToCanvas(result) {
+      if (result instanceof HTMLCanvasElement) return result;
+      if (result instanceof HTMLImageElement) {
+        const c = document.createElement('canvas');
+        c.width = result.naturalWidth; c.height = result.naturalHeight;
+        c.getContext('2d').drawImage(result, 0, 0);
+        return c;
+      }
+      // transformers.js v3 RawImage.toCanvas() 在浏览器里返回 OffscreenCanvas
+      let off = null;
+      if (result && typeof result.toCanvas === 'function') {
+        off = result.toCanvas();
+      } else if (result && result.data && result.width && result.height) {
+        // 兜底：直接用 width/height/data 构造 OffscreenCanvas
+        off = new OffscreenCanvas(result.width, result.height);
+        const ctx = off.getContext('2d');
+        const imgData = ctx.createImageData(result.width, result.height);
+        imgData.data.set(result.data);
+        ctx.putImageData(imgData, 0, 0);
+      }
+      if (!off) throw new Error('Swin2SR 输出格式未知：' + (typeof result));
+      // 把 OffscreenCanvas 转 HTMLCanvasElement
+      const blob = await off.convertToBlob({ type: 'image/png' });
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
+      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+      URL.revokeObjectURL(url);
+      const c = document.createElement('canvas');
+      c.width = off.width; c.height = off.height;
+      c.getContext('2d').drawImage(img, 0, 0);
+      return c;
+    }
+
+    function dataUrlFromImage(img) {
+      // 把 HTMLImageElement 转 Blob
+      return new Promise((resolve, reject) => {
+        const c = document.createElement('canvas');
+        c.width = img.naturalWidth;
+        c.height = img.naturalHeight;
+        c.getContext('2d').drawImage(img, 0, 0);
+        if (typeof c.toBlob === 'function') {
+          c.toBlob(blob => resolve(blob), 'image/png');
+        } else {
+          try { resolve(c.toDataURL('image/png')); } catch (e) { reject(e); }
+        }
+      });
+    }
+
+    /* ========== 文件入口 ========== */
     async function handleFile(file) {
       hideErr();
       try {
@@ -285,14 +407,39 @@
         $('cmpSrc').src = info.url;
         $('cmpSrcInfo').textContent = `${info.width}×${info.height} · ${IMG.formatBytes(info.size)}`;
         $('btnRun').disabled = false;
-        try { await loadModel(); } catch (e) { showErr(e.message || e); return; }
-        if (modelReady) process();
+        try { await ensureModel(); } catch (e) { showErr(e.message || e); return; }
+        if (window.UPS.ready) process();
       } catch (e) {
         showErr(e.message || e);
       }
     }
 
-    window.__upscale_test = { handleFile, loadModel, process, get current() { return current; }, get output() { return output; } };
+    /* ========== 模型选择 ========== */
+    $('modelSeg').addEventListener('click', async (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      const m = btn.dataset.model;
+      if (m === window.UPS.model) return;
+      window.UPS.model = m;
+      $('modelSeg').querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
+      window.UPS.ready = false;
+      window.UPS.currentBackend = null;
+      $('modelDesc').textContent = m === 'swin2sr'
+        ? 'Swin2SR realworld x4：Transformer 真实场景超分，质量显著强于 ESRGAN-slim，4 倍放大；首次加载约 23 MB。'
+        : 'ESRGAN-slim：体积小、加载快，适合轻度模糊或截图；x2 倍放大。';
+      setStatus('⏳ 模型：未加载');
+      $('btnRun').disabled = true;
+      $('cmpOutInfo').textContent = '—';
+      try { await ensureModel(); } catch (e) { showErr(e.message || e); return; }
+      if (window.UPS.ready && current) process();
+    });
+
+    window.__upscale_test = {
+      handleFile, process, ensureModel,
+      get current() { return current; },
+      get output() { return output; },
+      get state() { return { ...window.UPS, outputScale }; }
+    };
 
     IMG.setupDrop($('dropzone'), handleFile);
     $('dropzone').addEventListener('click', () => $('fileInput').click());
@@ -303,7 +450,7 @@
     $('btnRun').addEventListener('click', process);
     $('btnDownload').addEventListener('click', () => {
       if (!output) { toast('暂无可下载的结果'); return; }
-      IMG.downloadBlob(output.blob, `${IMG.baseName(current.name)}-upscaled-2x.png`);
+      IMG.downloadBlob(output.blob, `${IMG.baseName(current.name)}-upscaled-${outputScale}x.png`);
       toast('已开始下载');
     });
   </script>
