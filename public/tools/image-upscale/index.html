@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI 图片超分辨率 - Web IT Tool Box</title>
-  <meta name="description" content="在线 AI 图片超分辨率工具：基于 ESRGAN 与 Swin2SR 神经网络在浏览器本地放大图片 2-4 倍并重建细节，让低清模糊照片真正变清晰。处理在浏览器本地完成，图片不上传。">
+  <title>AI 图像清晰度增强 - Web IT Tool Box</title>
+  <meta name="description" content="调用百度 AI 图像清晰度增强 API，对低清模糊照片进行 AI 修复与超分重绘。每月最高 3000 次免费调用（百度智能云新人额度）。">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🪄</text></svg>">
   <link rel="stylesheet" href="/assets/css/style.css">
 </head>
@@ -24,68 +24,69 @@
   <main class="narrow">
 
     <div class="page-head">
-      <div class="crumbs"><a href="/">工具箱</a> / AI 图片超分辨率</div>
-      <h1><span class="icon-tile cat-design">🪄</span>AI 图片超分辨率</h1>
-      <p class="sub">ESRGAN 与 Swin2SR 两种 AI 模型在浏览器本地放大图片并重建细节，让低清模糊照片真正变清晰。所有处理在本地完成，图片不上传。</p>
+      <div class="crumbs"><a href="/">工具箱</a> / AI 图像清晰度增强</div>
+      <h1><span class="icon-tile cat-design">🪄</span>AI 图像清晰度增强</h1>
+      <p class="sub">调用百度智能云"图像清晰度增强"云端 API，对低清、模糊、压缩噪声照片进行 AI 修复与重绘。建议先<a href="https://ai.baidu.com/tech/imageprocess/image_definition_enhance" target="_blank" rel="noopener">开通服务领取免费额度</a>。</p>
     </div>
 
-    <!-- ① 上传 -->
+    <!-- ① API 凭据 -->
     <section class="panel">
-      <div class="panel-title"><span class="dot"></span>选择图片</div>
+      <div class="panel-title"><span class="dot"></span>① 百度智能云 API Key</div>
+      <label class="field-label" for="apiKey" style="margin-top:0;">API Key（client_id）</label>
+      <input type="text" id="apiKey" class="mono" placeholder="从百度智能云控制台 → 图像清晰度增强 → 应用列表获取" autocomplete="off" spellcheck="false">
+
+      <label class="field-label" for="secretKey">Secret Key（client_secret）</label>
+      <input type="password" id="secretKey" class="mono" placeholder="仅保存在浏览器本地，关闭页面即清除" autocomplete="off" spellcheck="false">
+
+      <div class="btn-row">
+        <button class="btn" id="btnGetToken">🔑 获取 Access Token</button>
+        <button class="btn" id="btnClearKey">🗑 清除凭据</button>
+      </div>
+      <div class="stat-bar">
+        <span id="tokenStatus">⏳ Access Token：未获取</span>
+        <span id="tokenCountdown"></span>
+      </div>
+      <p class="hint">
+        🔒 你的 API Key / Secret Key 仅保存在浏览器本地（localStorage），不上传到任何服务器。Access Token 也仅在本页使用。
+      </p>
+    </section>
+
+    <!-- ② 上传图片 -->
+    <section class="panel" id="workPanel" hidden>
+      <div class="panel-title"><span class="dot"></span>② 选择图片</div>
       <div class="dropzone" id="dropzone">
         <span class="dz-icon">🪄</span>
         <span class="dz-main">点击选择或拖拽低清/模糊图片到此处</span>
-        <span class="dz-sub">支持 JPG / PNG / WebP</span>
-        <input type="file" id="fileInput" accept="image/*">
+        <span class="dz-sub">支持 JPG / PNG / BMP；≤ 4 MB；短边建议 ≥ 128 px</span>
+        <input type="file" id="fileInput" accept="image/jpeg,image/png,image/bmp">
       </div>
       <div id="fileInfo" class="stat-bar" hidden></div>
-      <div id="errBox" class="err-box" hidden></div>
     </section>
 
-    <!-- ② 模型选择与处理 -->
-    <section class="panel" id="workPanel" hidden>
-      <div class="panel-title"><span class="dot"></span>选择 AI 模型</div>
-
-      <div class="seg" id="modelSeg">
-        <button class="active" data-model="esrgan">ESRGAN-slim ×2（快速，0.9 MB）</button>
-        <button data-model="swin2sr">Swin2SR ×4（更强，22.7 MB）</button>
-      </div>
-      <p class="hint" id="modelDesc">ESRGAN-slim：体积小、加载快，适合轻度模糊或截图；x2 倍放大。</p>
-
-      <div class="stat-bar" style="margin-top:14px;">
-        <span id="modelStatus">⏳ 模型：未加载</span>
-      </div>
-      <div id="modelProgress" hidden style="margin:8px 0 0;">
-        <div style="height:6px; background:var(--surface-2); border:1px solid var(--border); border-radius:999px;">
-          <div id="modelBar" style="height:100%; width:0%; background:linear-gradient(90deg, var(--accent), #60a5fa); border-radius:999px; transition:width 0.15s;"></div>
-        </div>
-        <p class="hint" id="modelHint" style="margin-top:6px;">准备加载……</p>
-      </div>
-
-      <div class="btn-row">
-        <button class="btn primary" id="btnRun" disabled>🪄 开始 AI 超分</button>
-      </div>
-      <p class="hint" id="processHint" hidden>⏳ 正在推理，请稍候（首次约需 5-30 秒，依赖设备性能）……</p>
-    </section>
-
-    <!-- ③ 结果对比 -->
+    <!-- ③ 处理与结果 -->
     <section class="panel" id="resultPanel" hidden>
-      <div class="panel-title"><span class="dot"></span>效果对比（左原图 / 右 AI 超分）</div>
-      <div class="compare-grid">
+      <div class="panel-title"><span class="dot"></span>③ AI 处理与对比</div>
+      <div class="btn-row">
+        <button class="btn primary" id="btnRun" disabled>✨ 调用百度 API 增强清晰度</button>
+      </div>
+      <p class="hint" id="processHint" hidden>⏳ 正在调用云端 AI 处理，通常 3-10 秒返回……</p>
+
+      <div class="compare-grid" style="margin-top:14px;">
         <div class="cmp">
           <div class="cmp-label">原图</div>
           <img id="cmpSrc" alt="原图">
           <div class="stat-bar" style="justify-content:center;"><span id="cmpSrcInfo">—</span></div>
         </div>
         <div class="cmp">
-          <div class="cmp-label">AI 放大后</div>
-          <img id="cmpOut" alt="AI 超分结果">
+          <div class="cmp-label">AI 增强后</div>
+          <img id="cmpOut" alt="AI 增强结果">
           <div class="stat-bar" style="justify-content:center;"><span id="cmpOutInfo">—</span></div>
         </div>
       </div>
       <div class="btn-row">
-        <button class="btn primary" id="btnDownload">⬇ 下载超分结果（PNG）</button>
+        <button class="btn primary" id="btnDownload" disabled>⬇ 下载增强结果</button>
       </div>
+      <div id="errBox" class="err-box" hidden></div>
     </section>
 
   </main>
@@ -99,242 +100,197 @@
   <div id="toast">已开始下载</div>
 
   <script src="/assets/js/image-utils.js"></script>
-
-  <!-- ESRGAN-slim 模型（懒加载：先放 CSS，JS 之后动态创建 script 标签） -->
-  <script>
-    /* 共享状态 */
-    window.UPS = {
-      model: 'esrgan',         // 'esrgan' | 'swin2sr'
-      currentBackend: null,     // 'esrgan' | 'swin2sr'
-      upscaler: null,           // ESRGAN-slim 用的 Upscaler 实例
-      swin2srPipe: null,        // Swin2SR transformers.js pipeline
-      loading: false,
-      ready: false,
-    };
-  </script>
-
-  <script src="/vendor/tf.min.js?v=2"></script>
-  <script src="/vendor/upscaler.min.js?v=2"></script>
-  <script src="/vendor/esrgan-slim-2x.min.js?v=2"></script>
-  <script src="/vendor/default-model.min.js?v=2"></script>
-  <script>
-    // ESRGAN-slim UMD 包装：把 _internals 指向本地 vendor 模型文件路径，
-    // 但 upscaler 内部会强制走 CDN URL 重写，所以用 fetch + tfjs 双层拦截把
-    // jsdelivr 的 ESRGAN-slim 模型 URL 重定向到本地 /upjs/esrgan-slim@1/...
-    (function () {
-      const _origFetch = window.fetch.bind(window);
-      window.fetch = function (input, init) {
-        let url = typeof input === 'string' ? input : (input && input.url);
-        if (typeof url === 'string') {
-          const m = url.match(/^https?:\/\/(?:cdn\.jsdelivr\.net\/npm|unpkg\.com)\/[^/]+\/(models\/x\d+\/.+)$/);
-          if (m) {
-            const localUrl = location.origin + '/upjs/esrgan-slim@1/' + m[1];
-            console.log('[upscale] ESRGAN CDN → 本地:', url, '→', localUrl);
-            return _origFetch(localUrl, init);
-          }
-        }
-        return _origFetch(input, init);
-      };
-      function _patchTf() {
-        if (!window.tf || !window.tf.loadLayersModel) { setTimeout(_patchTf, 50); return; }
-        const _llm = window.tf.loadLayersModel.bind(window.tf);
-        const _lgm = window.tf.loadGraphModel.bind(window.tf);
-        const wrap = (orig, name) => function (path, ...rest) {
-          const u = typeof path === 'string' ? path : (path && path.path);
-          if (typeof u === 'string') {
-            const m = u.match(/jsdelivr\.net\/npm\/[^/]+\/(models\/x\d+\/.+)$/);
-            if (m) {
-              const localUrl = location.origin + '/upjs/esrgan-slim@1/' + m[1];
-              console.log('[upscale] tf.' + name + ' → 本地:', localUrl);
-              return orig.call(this, localUrl, ...rest);
-            }
-          }
-          return orig.call(this, path, ...rest);
-        };
-        window.tf.loadLayersModel = wrap(_llm, 'loadLayersModel');
-        window.tf.loadGraphModel = wrap(_lgm, 'loadGraphModel');
-      }
-      _patchTf();
-    })();
-  </script>
-
-  <script type="module">
-    // transformers.js 是 ES 模块：从 src 加载，并把 transformers、pipeline 暴露到 window
-    import * as tfns from '/vendor/transformers.min.js?v=2';
-    window.transformers = tfns;
-    console.log('[upscale] transformers.js 模块已就绪，导出:', Object.keys(tfns).slice(0, 10));
-  </script>
-
   <script>
     'use strict';
     const $ = (id) => document.getElementById(id);
-    let current = null;
-    let output = null;
+    const STORAGE_KEY = 'baidu_image_enhance_keys';
+    let current = null;     // { img, name, size, width, height }
+    let output = null;      // { blob, name }
+    let accessToken = null; // { token, expiresAt }
     let runToken = 0;
-    let outputScale = 2;  // 由当前模型决定（esrgan=2, swin2sr=4）
 
     function toast(msg) {
       const el = $('toast');
       el.textContent = msg;
       el.classList.add('show');
       clearTimeout(toast._t);
-      toast._t = setTimeout(() => el.classList.remove('show'), 1600);
+      toast._t = setTimeout(() => el.classList.remove('show'), 1800);
     }
     function showErr(msg) { $('errBox').hidden = false; $('errBox').textContent = '❌ ' + msg; }
     function hideErr() { $('errBox').hidden = true; }
-    function setStatus(text, kind = '') {
-      const el = $('modelStatus');
+
+    /* ===== 凭据管理：localStorage 持久化（仅在本浏览器） ===== */
+    function saveKeys(apiKey, secretKey) {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ apiKey, secretKey })); } catch {}
+    }
+    function loadKeys() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        return raw ? JSON.parse(raw) : null;
+      } catch { return null; }
+    }
+    function clearKeys() {
+      try { localStorage.removeItem(STORAGE_KEY); } catch {}
+    }
+    function setTokenStatus(text, kind = '') {
+      const el = $('tokenStatus');
       el.textContent = text;
       el.className = kind;
     }
+    function setCountdown(seconds) {
+      const el = $('tokenCountdown');
+      if (seconds <= 0) { el.textContent = ''; return; }
+      const days = Math.floor(seconds / 86400);
+      const hours = Math.floor((seconds % 86400) / 3600);
+      el.textContent = days > 0 ? `（${days} 天 ${hours} 小时后过期）` : `（${hours} 小时后过期）`;
+    }
 
-    /* ========== ESRGAN-slim (Upscaler.js + tfjs) ========== */
-    async function loadEsrgan() {
-      if (window.UPS.currentBackend === 'esrgan' && window.UPS.ready) return true;
-      if (window.UPS.loading) {
-        await new Promise(r => { const i = setInterval(() => { if (window.UPS.ready || !window.UPS.loading) { clearInterval(i); r(); } }, 100); });
-        return window.UPS.ready && window.UPS.currentBackend === 'esrgan';
+    /* ===== 获取百度 Access Token（OAuth 2.0 client_credentials） ===== */
+    async function fetchAccessToken() {
+      const apiKey = $('apiKey').value.trim();
+      const secretKey = $('secretKey').value.trim();
+      if (!apiKey || !secretKey) throw new Error('请先填写 API Key 与 Secret Key');
+
+      setTokenStatus('⏳ 正在获取 Access Token…');
+      const tokenUrl = 'https://aip.baidubce.com/oauth/2.0/token';
+      const params = new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: apiKey,
+        client_secret: secretKey,
+      });
+      const resp = await fetch(`${tokenUrl}?${params}`, { method: 'POST' });
+      const json = await resp.json().catch(() => null);
+      if (!json) throw new Error(`网络异常：HTTP ${resp.status}`);
+      if (json.error) throw new Error(`百度错误：${json.error}（${json.error_description || ''}）`);
+      if (!json.access_token) throw new Error('百度返回异常：缺少 access_token');
+
+      accessToken = {
+        token: json.access_token,
+        expiresAt: Date.now() + ((json.expires_in || 2592000) - 3600) * 1000, // 提前 1 小时过期
+      };
+      saveKeys(apiKey, secretKey);
+      setTokenStatus('✅ Access Token：已就绪', 'ok');
+      setCountdown(Math.round((accessToken.expiresAt - Date.now()) / 1000));
+      toast('✅ Access Token 获取成功');
+      // 启动倒计时显示
+      clearInterval(setCountdown._t);
+      setCountdown._t = setInterval(() => {
+        const left = Math.round((accessToken.expiresAt - Date.now()) / 1000);
+        setCountdown(left);
+        if (left <= 0) {
+          accessToken = null;
+          setTokenStatus('⚠️ Access Token：已过期，请重新获取');
+          clearInterval(setCountdown._t);
+        }
+      }, 60000);
+    }
+
+    /* ===== 调用百度图像清晰度增强 ===== */
+    async function callImageEnhance(imgBase64) {
+      if (!accessToken || Date.now() >= accessToken.expiresAt) {
+        await fetchAccessToken();
       }
-      window.UPS.loading = true;
-      $('modelProgress').hidden = false;
-      $('modelBar').style.width = '0%';
-      $('modelHint').textContent = '正在初始化 ESRGAN 引擎……';
-      setStatus('⏳ 模型：加载中');
+      const url = 'https://aip.baidubce.com/rest/2.0/image-process/v1/image_definition_enhance/enhance';
+      const resp = await fetch(`${url}?access_token=${accessToken.token}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `image=${encodeURIComponent(imgBase64)}`,
+      });
+      const json = await resp.json().catch(() => null);
+      if (!json) throw new Error(`网络异常：HTTP ${resp.status}`);
+      if (json.error_code) {
+        const errMap = {
+          14: 'IAM 鉴权失败：请检查 API Key / Secret Key 是否正确',
+          17: 'Access Token 过期或无效，请重新获取',
+          18: 'Access Token 失效，请重新获取',
+          19: 'Access Token 过期，请重新获取',
+          100: '参数错误：可能是图片格式不支持',
+          110: 'Access Token 失效',
+          111: 'Access Token 无效',
+          216100: '图片大小超出 4 MB 限制',
+          216200: '图片短边 < 64 px（百度清晰度增强 API 要求）',
+          216201: '图片长边 ≥ 4096 px',
+          216300: '图片无法解码',
+          282002: '服务未开通或已欠费',
+        };
+        throw new Error(errMap[json.error_code] || `百度错误 ${json.error_code}：${json.error_msg || ''}`);
+      }
+      if (!json.image) throw new Error('百度返回异常：缺少 image 字段');
+      return json.image; // base64 PNG
+    }
+
+    /* ===== 文件入口 ===== */
+    async function handleFile(file) {
+      hideErr();
       try {
-        if (typeof tf === 'undefined') throw new Error('TensorFlow.js 未加载');
-        if (typeof Upscaler === 'undefined') throw new Error('Upscaler 引擎未加载');
-        if (typeof ESRGANSlim2x === 'undefined') throw new Error('ESRGAN-slim 模型定义未加载');
-        $('modelBar').style.width = '30%';
-        $('modelHint').textContent = '正在加载 ESRGAN-slim 模型权重……';
-        window.UPS.upscaler = new Upscaler({ model: ESRGANSlim2x });
-        await window.UPS.upscaler.upscale(new Image(64, 64), { output: 'src' });
-        $('modelBar').style.width = '100%';
-        $('modelHint').textContent = '模型加载完成';
-        window.UPS.currentBackend = 'esrgan';
-        window.UPS.ready = true;
-        outputScale = 2;
-        setStatus('✅ 模型：已就绪（ESRGAN-slim ×2）', 'ok');
-        setTimeout(() => { $('modelProgress').hidden = true; }, 1200);
-        return true;
+        if (!file.type.startsWith('image/')) throw new Error('请选择 JPG / PNG / BMP 图片文件');
+        if (file.size > 4 * 1024 * 1024) throw new Error('图片过大（' + IMG.formatBytes(file.size) + '），百度 API 限制 ≤ 4 MB');
+        const info = await IMG.loadImageFile(file);
+        if (Math.min(info.width, info.height) < 64) throw new Error('图片短边 ' + Math.min(info.width, info.height) + ' px < 64 px，百度 API 不支持');
+        current = info;
+        $('fileInfo').hidden = false;
+        $('fileInfo').innerHTML = `<span>📄 ${info.name}</span><span>尺寸：${info.width} × ${info.height}</span><span>大小：${IMG.formatBytes(info.size)}</span>`;
+        $('workPanel').hidden = false;
+        $('resultPanel').hidden = false;
+        $('cmpSrc').src = info.url;
+        $('cmpSrcInfo').textContent = `${info.width}×${info.height} · ${IMG.formatBytes(info.size)}`;
+        $('btnRun').disabled = false;
       } catch (e) {
-        setStatus('❌ 模型：加载失败');
-        $('modelHint').textContent = (e.message || e);
-        throw e;
-      } finally {
-        window.UPS.loading = false;
+        showErr(e.message || e);
       }
     }
 
-    /* ========== Swin2SR x4 (transformers.js + onnxruntime-web) ========== */
-    async function loadSwin2sr() {
-      if (window.UPS.currentBackend === 'swin2sr' && window.UPS.ready) return true;
-      if (window.UPS.loading) {
-        await new Promise(r => { const i = setInterval(() => { if (window.UPS.ready || !window.UPS.loading) { clearInterval(i); r(); } }, 100); });
-        return window.UPS.ready && window.UPS.currentBackend === 'swin2sr';
-      }
-      window.UPS.loading = true;
-      $('modelProgress').hidden = false;
-      $('modelBar').style.width = '0%';
-      $('modelHint').textContent = '正在初始化 transformers.js……';
-      setStatus('⏳ 模型：加载中');
-
-      try {
-        if (typeof window.transformers === 'undefined') throw new Error('transformers.js 未加载');
-
-        // transformers.js 必须从远端 CDN 加载模型（HF Hub / jsdelivr），
-        // 因为其内部硬编码 remoteHost 与远程预训练机制。
-        window.transformers.env.allowLocalModels = false;
-        window.transformers.env.useBrowserCache = true;
-        const MODEL_PATH = 'onnx-community/swin2SR-realworld-sr-x4-64-bsrgan-psnr-ONNX';
-
-        $('modelBar').style.width = '30%';
-        $('modelHint').textContent = '首次加载 ONNX 运行时与模型权重（约 30 MB，需联网）……';
-        const { pipeline } = window.transformers;
-
-        const pipe = await pipeline('image-to-image', MODEL_PATH, {
-          dtype: 'q4',
-          device: 'webgpu',     // 优先 WebGPU，否则自动回退 wasm
-        }).catch(async (e) => {
-          console.warn('[upscale] WebGPU 不可用，回退 wasm：', e.message);
-          return await pipeline('image-to-image', MODEL_PATH, { dtype: 'q4', device: 'wasm' });
-        });
-        window.UPS.swin2srPipe = pipe;
-        $('modelBar').style.width = '100%';
-        $('modelHint').textContent = 'Swin2SR 模型加载完成';
-        window.UPS.currentBackend = 'swin2sr';
-        window.UPS.ready = true;
-        outputScale = 4;
-        setStatus('✅ 模型：已就绪（Swin2SR ×4）', 'ok');
-        setTimeout(() => { $('modelProgress').hidden = true; }, 1200);
-        return true;
-      } catch (e) {
-        setStatus('❌ 模型：加载失败');
-        $('modelHint').textContent = (e.message || e);
-        throw e;
-      } finally {
-        window.UPS.loading = false;
-      }
-    }
-
-    async function ensureModel() {
-      if (window.UPS.model === 'swin2sr') return await loadSwin2sr();
-      return await loadEsrgan();
-    }
-
-    /* ========== 处理流程 ========== */
+    /* ===== 处理流程 ===== */
     async function process() {
       if (!current) return;
-      try { await ensureModel(); } catch (e) { showErr(e.message || e); return; }
-      if (!window.UPS.ready) return;
-
+      if (!accessToken || Date.now() >= accessToken.expiresAt) {
+        try { await fetchAccessToken(); } catch (e) { showErr(e.message || e); return; }
+      }
       const token = ++runToken;
       $('processHint').hidden = false;
       $('btnRun').disabled = true;
+      $('btnDownload').disabled = true;
       await new Promise(r => setTimeout(r, 30));
       if (token !== runToken) return;
 
       try {
+        // 把当前图按 PNG 重新编码成 base64（百度 API 支持 JPG/PNG；统一 PNG 保证无损）
+        const c = document.createElement('canvas');
+        c.width = current.width; c.height = current.height;
+        c.getContext('2d').drawImage(current.img, 0, 0);
+        const blob = await new Promise((res, rej) =>
+          c.toBlob(b => b ? res(b) : rej(new Error('toBlob 失败')), 'image/png')
+        );
+        if (token !== runToken) return;
+        const b64 = await new Promise((resolve, reject) => {
+          const r = new FileReader();
+          r.onload = () => resolve(String(r.result).split(',')[1]);
+          r.onerror = () => reject(r.error);
+          r.readAsDataURL(blob);
+        });
+        if (token !== runToken) return;
+
         const t0 = performance.now();
-        let outCanvas;
-        if (window.UPS.currentBackend === 'swin2sr') {
-          // Swin2SR 走 transformers.js pipeline
-          const url = URL.createObjectURL(await dataUrlFromImage(current.img));
-          const result = await window.UPS.swin2srPipe(url);
-          URL.revokeObjectURL(url);
-          if (token !== runToken) return;
-          outCanvas = await tensorOrCanvasToCanvas(result);
-        } else {
-          // ESRGAN-slim 走 Upscaler.js
-          const src = await window.UPS.upscaler.upscale(current.img, {
-            output: 'src',
-            patchSize: 64,
-            padding: 4,
-            progress: (rate) => {
-              if (token !== runToken) return;
-              $('modelBar').style.width = (rate * 100).toFixed(0) + '%';
-              $('modelHint').textContent = `推理中：${(rate * 100).toFixed(0)}%`;
-            }
-          });
-          if (token !== runToken) return;
-          const tmp = new Image();
-          await new Promise((res, rej) => {
-            tmp.onload = res; tmp.onerror = rej;
-            tmp.src = typeof src === 'string' ? src : src.src;
-          });
-          outCanvas = document.createElement('canvas');
-          outCanvas.width = tmp.naturalWidth; outCanvas.height = tmp.naturalHeight;
-          outCanvas.getContext('2d').drawImage(tmp, 0, 0);
-        }
+        const resultB64 = await callImageEnhance(b64);
         if (token !== runToken) return;
 
-        const blob = await IMG.canvasToBlob(outCanvas, 'image/png');
+        // 百度返回 base64 → blob → URL
+        const binStr = atob(resultB64);
+        const bytes = new Uint8Array(binStr.length);
+        for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i);
+        const resultBlob = new Blob([bytes], { type: 'image/png' });
         if (token !== runToken) return;
-        output = { blob, mime: 'image/png', width: outCanvas.width, height: outCanvas.height };
+        output = { blob: resultBlob, name: current.name };
 
-        $('cmpOut').src = URL.createObjectURL(blob);
-        $('cmpOutInfo').textContent = `${outCanvas.width}×${outCanvas.height}（×${outputScale}）· ${IMG.formatBytes(blob.size)}`;
+        // 显示结果
+        const resultImg = new Image();
+        await new Promise((res, rej) => { resultImg.onload = res; resultImg.onerror = rej; resultImg.src = URL.createObjectURL(resultBlob); });
+        if (token !== runToken) return;
+        $('cmpOut').src = resultImg.src;
+        $('cmpOutInfo').textContent = `${resultImg.naturalWidth}×${resultImg.naturalHeight} · ${IMG.formatBytes(resultBlob.size)}`;
+        $('btnDownload').disabled = false;
         hideErr();
-        toast(`✅ 处理完成（${Math.round(performance.now() - t0)}ms）`);
+        toast(`✅ 增强完成（${Math.round(performance.now() - t0)}ms）`);
       } catch (e) {
         if (token === runToken) showErr(e.message || e);
       } finally {
@@ -345,101 +301,22 @@
       }
     }
 
-    // 辅助：Swin2SR 输出（RawImage / OffscreenCanvas）转 HTMLCanvasElement
-    async function tensorOrCanvasToCanvas(result) {
-      if (result instanceof HTMLCanvasElement) return result;
-      if (result instanceof HTMLImageElement) {
-        const c = document.createElement('canvas');
-        c.width = result.naturalWidth; c.height = result.naturalHeight;
-        c.getContext('2d').drawImage(result, 0, 0);
-        return c;
-      }
-      // transformers.js v3 RawImage.toCanvas() 在浏览器里返回 OffscreenCanvas
-      let off = null;
-      if (result && typeof result.toCanvas === 'function') {
-        off = result.toCanvas();
-      } else if (result && result.data && result.width && result.height) {
-        // 兜底：直接用 width/height/data 构造 OffscreenCanvas
-        off = new OffscreenCanvas(result.width, result.height);
-        const ctx = off.getContext('2d');
-        const imgData = ctx.createImageData(result.width, result.height);
-        imgData.data.set(result.data);
-        ctx.putImageData(imgData, 0, 0);
-      }
-      if (!off) throw new Error('Swin2SR 输出格式未知：' + (typeof result));
-      // 把 OffscreenCanvas 转 HTMLCanvasElement
-      const blob = await off.convertToBlob({ type: 'image/png' });
-      const url = URL.createObjectURL(blob);
-      const img = new Image();
-      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
-      URL.revokeObjectURL(url);
-      const c = document.createElement('canvas');
-      c.width = off.width; c.height = off.height;
-      c.getContext('2d').drawImage(img, 0, 0);
-      return c;
-    }
-
-    function dataUrlFromImage(img) {
-      // 把 HTMLImageElement 转 Blob
-      return new Promise((resolve, reject) => {
-        const c = document.createElement('canvas');
-        c.width = img.naturalWidth;
-        c.height = img.naturalHeight;
-        c.getContext('2d').drawImage(img, 0, 0);
-        if (typeof c.toBlob === 'function') {
-          c.toBlob(blob => resolve(blob), 'image/png');
-        } else {
-          try { resolve(c.toDataURL('image/png')); } catch (e) { reject(e); }
-        }
-      });
-    }
-
-    /* ========== 文件入口 ========== */
-    async function handleFile(file) {
-      hideErr();
-      try {
-        const info = await IMG.loadImageFile(file);
-        current = info;
-        $('fileInfo').hidden = false;
-        $('fileInfo').innerHTML = `<span>📄 ${info.name}</span><span>尺寸：${info.width} × ${info.height}</span><span>大小：${IMG.formatBytes(info.size)}</span>`;
-        $('workPanel').hidden = false;
-        $('resultPanel').hidden = false;
-        $('cmpSrc').src = info.url;
-        $('cmpSrcInfo').textContent = `${info.width}×${info.height} · ${IMG.formatBytes(info.size)}`;
-        $('btnRun').disabled = false;
-        try { await ensureModel(); } catch (e) { showErr(e.message || e); return; }
-        if (window.UPS.ready) process();
-      } catch (e) {
-        showErr(e.message || e);
-      }
-    }
-
-    /* ========== 模型选择 ========== */
-    $('modelSeg').addEventListener('click', async (e) => {
-      const btn = e.target.closest('button');
-      if (!btn) return;
-      const m = btn.dataset.model;
-      if (m === window.UPS.model) return;
-      window.UPS.model = m;
-      $('modelSeg').querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
-      window.UPS.ready = false;
-      window.UPS.currentBackend = null;
-      $('modelDesc').textContent = m === 'swin2sr'
-        ? 'Swin2SR realworld x4：Transformer 真实场景超分，质量显著强于 ESRGAN-slim，4 倍放大；首次加载约 23 MB。'
-        : 'ESRGAN-slim：体积小、加载快，适合轻度模糊或截图；x2 倍放大。';
-      setStatus('⏳ 模型：未加载');
-      $('btnRun').disabled = true;
-      $('cmpOutInfo').textContent = '—';
-      try { await ensureModel(); } catch (e) { showErr(e.message || e); return; }
-      if (window.UPS.ready && current) process();
+    /* ===== 事件绑定 ===== */
+    $('btnGetToken').addEventListener('click', async () => {
+      try { await fetchAccessToken(); } catch (e) { showErr(e.message || e); }
     });
-
-    window.__upscale_test = {
-      handleFile, process, ensureModel,
-      get current() { return current; },
-      get output() { return output; },
-      get state() { return { ...window.UPS, outputScale }; }
-    };
+    $('btnClearKey').addEventListener('click', () => {
+      $('apiKey').value = '';
+      $('secretKey').value = '';
+      clearKeys();
+      accessToken = null;
+      setTokenStatus('⏳ Access Token：未获取');
+      $('tokenCountdown').textContent = '';
+      clearInterval(setCountdown._t);
+      toast('凭据已清除');
+    });
+    $('apiKey').addEventListener('change', () => accessToken = null);
+    $('secretKey').addEventListener('change', () => accessToken = null);
 
     IMG.setupDrop($('dropzone'), handleFile);
     $('dropzone').addEventListener('click', () => $('fileInput').click());
@@ -449,10 +326,20 @@
     });
     $('btnRun').addEventListener('click', process);
     $('btnDownload').addEventListener('click', () => {
-      if (!output) { toast('暂无可下载的结果'); return; }
-      IMG.downloadBlob(output.blob, `${IMG.baseName(current.name)}-upscaled-${outputScale}x.png`);
+      if (!output) return;
+      IMG.downloadBlob(output.blob, IMG.baseName(output.name) + '-enhanced.png');
       toast('已开始下载');
     });
+
+    /* ===== 启动时自动恢复凭据（不自动获取 token，让用户主动点击） ===== */
+    (function init() {
+      const keys = loadKeys();
+      if (keys && keys.apiKey && keys.secretKey) {
+        $('apiKey').value = keys.apiKey;
+        $('secretKey').value = keys.secretKey;
+        setTokenStatus('ℹ️ 检测到本地保存的凭据，点击「获取 Access Token」开始');
+      }
+    })();
   </script>
 </body>
 </html>
