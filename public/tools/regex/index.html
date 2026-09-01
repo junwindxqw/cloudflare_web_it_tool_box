@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>正则表达式测试 - Web IT Tool Box</title>
+  <meta name="description" content="在线正则表达式测试工具：实时匹配高亮、匹配计数、分组捕获详情，支持 g/i/m/s/u 标志，全部计算在浏览器本地完成。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔍</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / 正则表达式测试</div>
+      <h1><span class="icon-tile cat-qa">🔍</span>正则表达式测试</h1>
+      <p class="sub">实时匹配高亮与计数，分组捕获详情，所有计算均在浏览器本地完成。</p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>表达式</div>
+      <div style="display:flex; gap:10px; align-items:center;">
+        <span class="mono" style="color:var(--muted); font-size:16px;">/</span>
+        <input type="text" id="patternInput" class="mono" style="flex:1;" placeholder="例如：\w+@[\w.-]+\.\w+" autocomplete="off" spellcheck="false">
+        <span class="mono" style="color:var(--muted); font-size:16px;">/</span>
+        <span class="mono" id="flagsLabel" style="color:var(--accent-strong); font-size:15px; min-width:34px;">g</span>
+      </div>
+      <div class="flag-group" id="flagGroup">
+        <label class="radio-label"><input type="checkbox" value="g" checked> g 全局</label>
+        <label class="radio-label"><input type="checkbox" value="i"> i 忽略大小写</label>
+        <label class="radio-label"><input type="checkbox" value="m"> m 多行</label>
+        <label class="radio-label"><input type="checkbox" value="s"> s 点匹配换行</label>
+        <label class="radio-label"><input type="checkbox" value="u"> u Unicode</label>
+      </div>
+      <div id="errBox" class="err-box" hidden></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>测试文本</div>
+      <textarea id="testText" class="json-input" style="min-height:150px;" placeholder="在此输入要匹配的文本…" spellcheck="false"></textarea>
+      <div class="stat-bar">
+        <span>字符：<span id="stChars">0</span></span>
+        <span id="stMatches"></span>
+      </div>
+    </section>
+
+    <section class="panel" id="resultPanel" hidden>
+      <div class="panel-title"><span class="dot"></span>匹配高亮</div>
+      <div id="highlightBox" class="json-output" style="white-space:pre-wrap; min-height:80px; max-height:400px;"></div>
+
+      <div class="panel-title" style="margin-top:18px;"><span class="dot"></span>匹配详情</div>
+      <div class="match-detail" id="matchList"></div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+    const $ = (id) => document.getElementById(id);
+    const patternEl = $('patternInput'), textEl = $('testText'), errBox = $('errBox');
+
+    const escapeHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const MAX_MATCHES = 10000; // 高亮与扫描上限，防止海量匹配卡死页面
+
+    function getFlags() {
+      return [...$('flagGroup').querySelectorAll('input:checked')].map(i => i.value).join('');
+    }
+
+    function currentRegex() {
+      return new RegExp(patternEl.value, getFlags()); // 语法错误在此抛出
+    }
+
+    function run() {
+      const text = textEl.value;
+      $('stChars').textContent = text.length;
+      $('flagsLabel').textContent = getFlags() || '';
+
+      if (!patternEl.value) {
+        hideErr();
+        $('stMatches').textContent = '';
+        $('resultPanel').hidden = true;
+        return;
+      }
+
+      let re;
+      try {
+        re = currentRegex();
+        hideErr();
+      } catch (e) {
+        showErr('❌ 无效的正则表达式：' + (e.message || e));
+        $('stMatches').textContent = '';
+        $('resultPanel').hidden = true;
+        return;
+      }
+
+      if (!text) {
+        $('stMatches').textContent = '';
+        $('resultPanel').hidden = true;
+        return;
+      }
+
+      // 全文扫描（未勾选 g 时仅取第一个匹配，遵循标志语义）
+      const scanner = new RegExp(re.source, getFlags().includes('g') ? getFlags() : getFlags() + 'g');
+      const matches = [];
+      let last = 0, html = '', m;
+      const limit = getFlags().includes('g') ? Infinity : 1;
+      while ((m = scanner.exec(text)) !== null && matches.length < limit && matches.length < MAX_MATCHES) {
+        html += escapeHtml(text.slice(last, m.index)) + '<mark class="hl">' + escapeHtml(m[0]) + '</mark>';
+        last = m.index + m[0].length;
+        matches.push({ index: m.index, text: m[0], groups: m.slice(1), named: m.groups });
+        if (m[0] === '') { // 零长度匹配：前进一位避免死循环
+          if (scanner.lastIndex >= text.length) break;
+          html += escapeHtml(text[scanner.lastIndex]);
+          last = ++scanner.lastIndex;
+        }
+      }
+      html += escapeHtml(text.slice(last));
+
+      $('highlightBox').innerHTML = html;
+      $('stMatches').textContent = matches.length
+        ? (matches.length >= MAX_MATCHES
+            ? `✅ 匹配超过 ${MAX_MATCHES} 处，仅高亮前 ${MAX_MATCHES} 处`
+            : getFlags().includes('g') ? `✅ 共匹配 ${matches.length} 处` : '✅ 匹配 1 处（未启用 g 全局标志）')
+        : '❌ 无匹配';
+      $('stMatches').className = matches.length ? 'ok' : 'bad';
+
+      $('matchList').innerHTML = matches.slice(0, 100).map((mt, i) => {
+        let groups = '';
+        if (mt.named && Object.keys(mt.named).length) {
+          groups = Object.entries(mt.named)
+            .map(([k, v]) => `<span class="grp">${escapeHtml(k)}="${escapeHtml(v ?? '未匹配')}"</span>`).join(' ');
+        } else if (mt.groups.length) {
+          groups = mt.groups
+            .map((v, gi) => `<span class="grp">$${gi + 1}="${escapeHtml(v ?? '未匹配')}"</span>`).join(' ');
+        }
+        return `<div class="md"><span class="md-idx">#${i + 1}</span>[${mt.index}] "${escapeHtml(mt.text)}"${groups ? ' → ' + groups : ''}</div>`;
+      }).join('') || '<div class="md" style="color:var(--muted);">无匹配结果</div>';
+      $('resultPanel').hidden = false;
+    }
+
+    function showErr(msg) { errBox.hidden = false; errBox.textContent = msg; }
+    function hideErr() { errBox.hidden = true; }
+
+    patternEl.addEventListener('input', run);
+    textEl.addEventListener('input', run);
+    $('flagGroup').addEventListener('change', run);
+
+    // 初始化示例：邮箱匹配
+    patternEl.value = '\\w+@[\\w.-]+\\.\\w+';
+    textEl.value = '联系我们：support@example.com 或 sales@tool-box.org.cn\n无效地址：admin@localhost';
+    run();
+  </script>
+</body>
+</html>

@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cron 表达式解析 - Web IT Tool Box</title>
+  <meta name="description" content="在线 Crontab 表达式解析工具：可视化解析 5 字段表达式的含义，推算最近 5 次执行时间，提供常用表达式模板，全部计算在浏览器本地完成。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⏰</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / Cron 表达式解析</div>
+      <h1><span class="icon-tile cat-ops">⏰</span>Cron 表达式解析</h1>
+      <p class="sub">解析标准 5 字段 Crontab 表达式（分 时 日 月 周），可视化含义并推算最近执行时间。</p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>表达式</div>
+      <div class="chips" id="presets">
+        <button class="chip" data-expr="* * * * *">每分钟</button>
+        <button class="chip" data-expr="*/5 * * * *">每 5 分钟</button>
+        <button class="chip" data-expr="0 * * * *">每小时整点</button>
+        <button class="chip" data-expr="0 0 * * *">每天零点</button>
+        <button class="chip" data-expr="30 8 * * 1-5">工作日 08:30</button>
+        <button class="chip" data-expr="0 9 * * 1">每周一 09:00</button>
+        <button class="chip" data-expr="0 0 1 * *">每月 1 号零点</button>
+        <button class="chip" data-expr="0 0 29 2 *">每闰年 2 月 29 日</button>
+      </div>
+      <input type="text" id="cronInput" class="mono" placeholder="例如：30 8 * * 1-5" autocomplete="off" spellcheck="false">
+      <p class="hint">格式：<code>分钟(0-59) 小时(0-23) 日(1-31) 月(1-12) 星期(0-7，0 和 7 均为周日)</code>，支持 <code>*</code>、<code>,</code>、<code>-</code>、<code>/</code> 与英文缩写（jan、mon 等）。日与周同时受限时按标准 Crontab 语义取「或」。</p>
+      <div id="errBox" class="err-box" hidden></div>
+    </section>
+
+    <section class="panel" id="resultPanel" hidden>
+      <div class="panel-title"><span class="dot"></span>字段含义</div>
+      <div class="result-list" id="fieldList"></div>
+    </section>
+
+    <section class="panel" id="nextPanel" hidden>
+      <div class="panel-title"><span class="dot"></span>最近 5 次执行时间</div>
+      <div class="next-list" id="nextList"></div>
+      <p class="hint" id="tzHint"></p>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+    const $ = (id) => document.getElementById(id);
+    const inputEl = $('cronInput'), errBox = $('errBox');
+    const WEEK_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+    const pad = (n) => String(n).padStart(2, '0');
+
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toast._t);
+      toast._t = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    /* ---------- 字段解析 ---------- */
+    function parseField(item, min, max, names) {
+      // 支持逗号列表："1,15"、"1-5,10"、"*/2,30" 等，取并集
+      const set = new Set();
+      for (const tok of item.split(',')) {
+        for (const v of parseSingleField(tok.trim(), min, max, names)) set.add(v);
+      }
+      if (!set.size) throw '字段解析结果为空';
+      return set;
+    }
+
+    function parseSingleField(item, min, max, names) {
+      if (!item) throw '表达式含有空字段值';
+      let rangeStr = item, step = 1;
+      const si = item.indexOf('/');
+      if (si >= 0) {
+        rangeStr = item.slice(0, si);
+        step = Number(item.slice(si + 1));
+        if (!Number.isInteger(step) || step < 1) throw `步长 "${item.slice(si + 1)}" 必须为正整数`;
+      }
+      const resolve = (tok) => {
+        tok = tok.trim().toLowerCase();
+        if (names && names[tok] !== undefined) return names[tok];
+        const n = Number(tok);
+        if (!Number.isInteger(n)) throw `无法识别的值 "${tok}"`;
+        let v = n;
+        if (max === 7 && v === 7) v = 0; // 星期 7 视为周日
+        const effMax = max === 7 ? 6 : max;
+        if (v < min || v > effMax) throw `值 ${n} 超出范围 [${min}-${effMax}]`;
+        return v;
+      };
+      let lo = min, hi = max;
+      if (rangeStr !== '*') {
+        const ri = rangeStr.indexOf('-');
+        if (ri >= 0) {
+          lo = resolve(rangeStr.slice(0, ri));
+          hi = resolve(rangeStr.slice(ri + 1));
+          if (lo > hi) throw `范围 "${rangeStr}" 的起始值不能大于结束值`;
+        } else {
+          lo = resolve(rangeStr);
+          hi = si >= 0 ? max : lo; // "5/2" 按 Vixie 语义展开为 5-max
+        }
+      }
+      const set = new Set();
+      for (let v = lo; v <= hi; v += step) set.add(v);
+      if (!set.size) throw '字段解析结果为空';
+      return set;
+    }
+
+    const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+    const DOWS = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+
+    function parseCron(expr) {
+      const parts = expr.trim().split(/\s+/);
+      if (parts.length !== 5) throw `标准 Crontab 需要 5 个字段（分 时 日 月 周），当前为 ${parts.length} 个`;
+      const dow = parseField(parts[4], 0, 7, DOWS);
+      if (dow.has(7)) { dow.delete(7); dow.add(0); }
+      return {
+        minute: parseField(parts[0], 0, 59),
+        hour: parseField(parts[1], 0, 23),
+        dom: parseField(parts[2], 1, 31),
+        month: parseField(parts[3], 1, 12, MONTHS),
+        dow,
+      };
+    }
+
+    /* ---------- 日期匹配（日/周同时受限取「或」，标准 Crontab 语义） ---------- */
+    function dayMatches(f, date) {
+      if (!f.month.has(date.getMonth() + 1)) return false;
+      const domOK = f.dom.has(date.getDate());
+      const dowOK = f.dow.has(date.getDay());
+      const domUnres = f.dom.size === 31;
+      const dowUnres = f.dow.size === 7;
+      if (domUnres && dowUnres) return true;
+      if (domUnres) return dowOK;
+      if (dowUnres) return domOK;
+      return domOK || dowOK;
+    }
+
+    /* ---------- 最近 N 次执行时间 ---------- */
+    function nextRuns(f, count = 5) {
+      const start = new Date();
+      start.setSeconds(0, 0);
+      start.setMinutes(start.getMinutes() + 1);
+      const cursor = new Date(start);
+      cursor.setHours(0, 0, 0, 0);
+      const res = [];
+      const hours = [...f.hour].sort((a, b) => a - b);
+      const minutes = [...f.minute].sort((a, b) => a - b);
+      for (let d = 0; d < 366 * 6 && res.length < count; d++) {
+        if (dayMatches(f, cursor)) {
+          for (const h of hours) {
+            for (const m of minutes) {
+              const t = new Date(cursor);
+              t.setHours(h, m, 0, 0);
+              if (t >= start) {
+                res.push(t);
+                if (res.length >= count) break;
+              }
+            }
+            if (res.length >= count) break;
+          }
+        }
+        cursor.setDate(cursor.getDate() + 1);
+      }
+      return res;
+    }
+
+    /* ---------- 字段描述 ---------- */
+    function describe(kind, set) {
+      const sizes = { minute: 60, hour: 24, dom: 31, month: 12, dow: 7 };
+      const label = {
+        minute: v => `第 ${v} 分钟`,
+        hour: v => `${v} 点`,
+        dom: v => `${v} 日`,
+        month: v => `${v} 月`,
+        dow: v => WEEK_NAMES[v],
+      }[kind];
+      const everyText = { minute: '每分钟', hour: '每小时', dom: '每日', month: '每月', dow: '一周每天' }[kind];
+      const vals = [...set].sort((a, b) => a - b);
+      if (vals.length === sizes[kind]) return everyText;
+      if (vals.length === 1) return `仅 ${label(vals[0])}`;
+      // 等差数列（步长 > 1）
+      if (vals.length >= 3) {
+        const step = vals[1] - vals[0];
+        if (step > 1 && vals.every((v, i) => v === vals[0] + i * step)) {
+          return `从 ${label(vals[0])} 开始，每隔 ${step}（${label(vals[vals.length - 1])} 止）`;
+        }
+      }
+      // 连续区间
+      if (vals[vals.length - 1] - vals[0] === vals.length - 1) {
+        return `从 ${label(vals[0])} 到 ${label(vals[vals.length - 1])}`;
+      }
+      // 离散列表
+      const shown = vals.slice(0, 8).map(label).join('、');
+      return vals.length > 8 ? `${shown} 等共 ${vals.length} 个值` : `仅 ${shown}`;
+    }
+
+    /* ---------- 渲染 ---------- */
+    function fmt(t) {
+      return `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())} ${pad(t.getHours())}:${pad(t.getMinutes())}（周${WEEK_NAMES[t.getDay()][1]}）`;
+    }
+
+    function run() {
+      const expr = inputEl.value;
+      if (!expr.trim()) {
+        errBox.hidden = true;
+        $('resultPanel').hidden = true;
+        $('nextPanel').hidden = true;
+        return;
+      }
+      try {
+        const f = parseCron(expr);
+        errBox.hidden = true;
+
+        const defs = [
+          ['分钟', expr.trim().split(/\s+/)[0], describe('minute', f.minute)],
+          ['小时', expr.trim().split(/\s+/)[1], describe('hour', f.hour)],
+          ['日', expr.trim().split(/\s+/)[2], describe('dom', f.dom)],
+          ['月', expr.trim().split(/\s+/)[3], describe('month', f.month)],
+          ['星期', expr.trim().split(/\s+/)[4], describe('dow', f.dow)],
+        ];
+        $('fieldList').innerHTML = defs.map(([name, raw, desc]) =>
+          `<div class="result-row"><span class="r-label">${name}</span><span class="r-value">${raw}</span><span class="r-value" style="flex:2;">${desc}</span></div>`
+        ).join('');
+        $('resultPanel').hidden = false;
+
+        const times = nextRuns(f, 5);
+        $('nextList').innerHTML = times.map((t, i) =>
+          `<div class="nx"><span class="idx">#${i + 1}</span><span>${fmt(t)}</span></div>`
+        ).join('') || '<div class="nx">未来 6 年内无匹配时间（如 2 月 30 日等不可能日期）</div>';
+        $('nextPanel').hidden = false;
+      } catch (e) {
+        $('resultPanel').hidden = true;
+        $('nextPanel').hidden = true;
+        errBox.hidden = false;
+        errBox.textContent = '❌ ' + (e.message || e);
+      }
+    }
+
+    inputEl.addEventListener('input', run);
+    $('presets').addEventListener('click', (e) => {
+      const chip = e.target.closest('.chip');
+      if (!chip) return;
+      inputEl.value = chip.dataset.expr;
+      run();
+    });
+
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local';
+    $('tzHint').textContent = `以上时间基于本地时区（${zone}）推算。`;
+
+    // 初始化示例
+    inputEl.value = '30 8 * * 1-5';
+    run();
+  </script>
+</body>
+</html>

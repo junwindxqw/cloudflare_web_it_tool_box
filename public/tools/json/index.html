@@ -70,6 +70,7 @@
       <div id="jsonOutput" class="json-output"><div class="placeholder">格式化结果将显示在这里…… 点击「⚡ 格式化」或「📦 压缩」开始。</div></div>
       <div class="stat-bar" id="outStats" hidden>
         <span>输出：字符 <span id="outChars">0</span> · 行数 <span id="outLines">0</span> · 字节 <span id="outBytes">0</span></span>
+        <span id="outWarn" class="warn" hidden></span>
       </div>
 
       <div id="errBox" class="err-box" hidden></div>
@@ -123,17 +124,20 @@
     }
 
     /* ---------- 解析与错误定位 ---------- */
-    function parseJSON(text) {
+    const BOM = /^\uFEFF/;
+    const HIGHLIGHT_LIMIT = 500 * 1024; // 超过此大小的输出跳过高亮，避免渲染卡顿
+
+    function parseJSON(text) { // 传入不含 BOM 的文本
       try { return { data: JSON.parse(text) }; }
       catch (e) { return { error: String(e.message || e) }; }
     }
 
     // 从报错信息中提取行列号（V8: "... at position N (line X column Y)"）
-    function locateError(msg) {
+    function locateError(msg, text) {
       const m = msg.match(/\(line (\d+) column (\d+)\)/);
       if (m) return { line: Number(m[1]), column: Number(m[2]) };
       const p = msg.match(/at position (\d+)/);
-      if (p) return posFromIndex(inputEl.value, Number(p[1]));
+      if (p) return posFromIndex(text, Number(p[1]));
       return null;
     }
 
@@ -153,14 +157,14 @@
 
       const badge = $('stValid');
       if (!t.trim()) { badge.textContent = ''; badge.className = ''; return; }
-      const r = parseJSON(t);
+      const r = parseJSON(t.replace(BOM, ''));
       if (r.error) { badge.textContent = '❌ 无效 JSON'; badge.className = 'bad'; }
       else { badge.textContent = '✅ 有效 JSON'; badge.className = 'ok'; }
     }
 
-    function showError(msg) {
+    function showError(msg, text) {
       errBox.hidden = false;
-      const loc = locateError(msg);
+      const loc = locateError(msg, text);
       errBox.innerHTML =
         '<strong>❌ 解析失败</strong>' +
         `<span class="err-detail">${escapeHtml(msg)}</span>` +
@@ -170,44 +174,78 @@
     function hideError() { errBox.hidden = true; }
 
     /* ---------- 动作 ---------- */
+    let lastData; // 最近一次成功解析的数据（切换缩进后即时重渲染）
+    let lastMinified = false;
+
     function indentValue() {
       const v = $('indentSel').value;
       return v === 'tab' ? '\t' : Number(v);
     }
 
-    function render(text) {
+    function renderOutput(minify) {
+      let hasNonFinite = false;
+      const text = JSON.stringify(lastData, (k, v) => {
+        if (typeof v === 'number' && !Number.isFinite(v)) hasNonFinite = true;
+        return v;
+      }, minify ? undefined : indentValue());
+
       currentOutput = text;
-      outputEl.innerHTML = highlight(text);
+      if (text.length > HIGHLIGHT_LIMIT) {
+        outputEl.textContent = text; // 大输出：纯文本渲染，避免高亮卡顿
+      } else {
+        outputEl.innerHTML = highlight(text);
+      }
       $('outChars').textContent = text.length;
       $('outLines').textContent = text.split('\n').length;
       $('outBytes').textContent = byteLength(text);
       outStats.hidden = false;
+
+      const warn = $('outWarn');
+      if (hasNonFinite) {
+        warn.hidden = false;
+        warn.textContent = '⚠️ 含超出 JSON 表示范围的数值（如 1e999），已序列化为 null';
+      } else if (text.length > HIGHLIGHT_LIMIT) {
+        warn.hidden = false;
+        warn.textContent = '⚠️ 内容较大，已关闭语法高亮（复制 / 下载不受影响）';
+      } else {
+        warn.hidden = true;
+      }
     }
 
     function transform(minify) {
-      const t = inputEl.value;
-      if (!t.trim()) {
+      const raw = inputEl.value;
+      if (!raw.trim()) {
+        lastData = undefined;
+        currentOutput = '';
         hideError();
         outputEl.innerHTML = '<div class="placeholder">请先在上方输入 JSON 内容。</div>';
         outStats.hidden = true;
-        currentOutput = '';
         return;
       }
-      const r = parseJSON(t);
-      if (r.error) { showError(r.error); return; }
+      const text = raw.replace(BOM, ''); // 兼容带 BOM 的输入（如 Excel 导出）
+      const r = parseJSON(text);
+      if (r.error) { showError(r.error, text); return; }
       hideError();
-      render(minify ? JSON.stringify(r.data) : JSON.stringify(r.data, null, indentValue()));
+      lastData = r.data;
+      lastMinified = minify;
+      renderOutput(minify);
       toast(minify ? '压缩完成' : '格式化完成');
     }
+
+    // 切换缩进风格后，若有格式化结果则即时重渲染
+    $('indentSel').addEventListener('change', () => {
+      if (lastData !== undefined && !lastMinified) renderOutput(false);
+    });
 
     $('btnFormat').addEventListener('click', () => transform(false));
     $('btnMinify').addEventListener('click', () => transform(true));
 
     $('btnValidate').addEventListener('click', () => {
-      const t = inputEl.value;
-      if (!t.trim()) { toast('请先输入 JSON 内容'); return; }
+      const raw = inputEl.value;
+      if (!raw.trim()) { toast('请先输入 JSON 内容'); return; }
+      const t = raw.replace(BOM, '');
       const r = parseJSON(t);
-      if (r.error) { showError(r.error); }
+      if (r.error) { showError(r.error, t); }
       else {
         hideError();
         const type = Array.isArray(r.data) ? `数组（${r.data.length} 项）`
@@ -252,6 +290,7 @@
     $('btnClear').addEventListener('click', () => {
       inputEl.value = '';
       currentOutput = '';
+      lastData = undefined;
       outputEl.innerHTML = '<div class="placeholder">格式化结果将显示在这里…… 点击「⚡ 格式化」或「📦 压缩」开始。</div>';
       outStats.hidden = true;
       hideError();

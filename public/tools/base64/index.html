@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Base64 编解码 - Web IT Tool Box</title>
+  <meta name="description" content="在线 Base64 编码与解码工具：完整支持 UTF-8 中文，编码解码双向实时转换，URL 安全变体输出，全部计算在浏览器本地完成。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔐</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / Base64 编解码</div>
+      <h1><span class="icon-tile cat-dev">🔐</span>Base64 编解码</h1>
+      <p class="sub">文本与 Base64 双向转换，完整支持 UTF-8 中文，所有计算均在浏览器本地完成。</p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>转换方向</div>
+      <div class="seg" id="modeSeg">
+        <button class="active" data-mode="encode">文本 → Base64</button>
+        <button data-mode="decode">Base64 → 文本</button>
+      </div>
+      <label class="unit-switch radio-label" style="margin-top:12px;">
+        <input type="checkbox" id="urlSafe"> URL 安全输出（- 和 _ 替换 + 和 /，解码时自动兼容两种）
+      </label>
+    </section>
+
+    <section class="panel">
+      <div class="io-grid">
+        <div class="io-box">
+          <div class="io-label">
+            <span>输入</span>
+            <button class="copy-btn" data-copy-target="inText">复制</button>
+          </div>
+          <textarea id="inText" class="json-input" style="min-height:190px;" placeholder="在此输入文本或 Base64…" spellcheck="false"></textarea>
+          <div class="stat-bar">
+            <span>字符：<span id="stIn">0</span></span>
+            <span id="stValid"></span>
+          </div>
+        </div>
+        <div class="io-box">
+          <div class="io-label">
+            <span>输出</span>
+            <span>
+              <button class="copy-btn" data-copy-target="outText">复制</button>
+            </span>
+          </div>
+          <textarea id="outText" class="json-input" style="min-height:190px;" readonly placeholder="转换结果将显示在这里…"></textarea>
+          <div class="stat-bar"><span>字符：<span id="stOut">0</span></span></div>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn" id="btnSwap">⇄ 交换输入输出</button>
+        <button class="btn" id="btnClear">🗑 清空</button>
+      </div>
+      <div id="errBox" class="err-box" hidden></div>
+      <p class="hint">提示：输入内容变化时实时转换；解码时自动忽略空白与换行。</p>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+    const $ = (id) => document.getElementById(id);
+    const inEl = $('inText'), outEl = $('outText'), errBox = $('errBox');
+    let mode = 'encode';
+
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toast._t);
+      toast._t = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    /* UTF-8 安全的 Base64：分块处理，避免大文本栈溢出 */
+    function utf8ToB64(str, urlSafe) {
+      const bytes = new TextEncoder().encode(str);
+      let bin = '';
+      const CHUNK = 0x8000;
+      for (let i = 0; i < bytes.length; i += CHUNK) {
+        bin += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+      }
+      const b64 = btoa(bin);
+      return urlSafe ? b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') : b64;
+    }
+
+    function b64ToUtf8(str) {
+      const clean = str.trim().replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/');
+      const pad = clean + '='.repeat((4 - (clean.length % 4)) % 4);
+      const bin = atob(pad); // 非法字符在此抛出 InvalidCharacterError
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const out = new TextDecoder('utf-8', { fatal: true }).decode(bytes); // 非法 UTF-8 序列在此抛错
+      return out;
+    }
+
+    function showErr(msg) { errBox.hidden = false; errBox.textContent = msg; }
+    function hideErr() { errBox.hidden = true; }
+
+    function convert() {
+      const t = inEl.value;
+      $('stIn').textContent = t.length;
+      if (!t) {
+        outEl.value = '';
+        $('stOut').textContent = '0';
+        $('stValid').textContent = '';
+        hideErr();
+        return;
+      }
+      try {
+        if (mode === 'encode') {
+          outEl.value = utf8ToB64(t, $('urlSafe').checked);
+          $('stValid').textContent = '';
+        } else {
+          outEl.value = b64ToUtf8(t);
+          $('stValid').textContent = '✅ 解码成功';
+          $('stValid').className = 'ok';
+        }
+        hideErr();
+      } catch (e) {
+        outEl.value = '';
+        if (mode === 'decode') {
+          $('stValid').textContent = '❌ 无效 Base64';
+          $('stValid').className = 'bad';
+          showErr('❌ 解码失败：不是有效的 Base64 字符串（已自动兼容 URL 安全变体与空白字符）。');
+        } else {
+          showErr('❌ 编码失败：' + (e.message || e));
+        }
+      }
+      $('stOut').textContent = outEl.value.length;
+    }
+
+    $('modeSeg').addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      mode = btn.dataset.mode;
+      $('modeSeg').querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
+      inEl.placeholder = mode === 'encode' ? '在此输入要编码的文本…' : '在此输入要解码的 Base64…';
+      convert();
+    });
+
+    $('urlSafe').addEventListener('change', convert);
+    inEl.addEventListener('input', convert);
+
+    $('btnSwap').addEventListener('click', () => {
+      if (!outEl.value) { toast('暂无结果可交换'); return; }
+      inEl.value = outEl.value;
+      const target = mode === 'encode' ? 'decode' : 'encode';
+      $('modeSeg').querySelector(`[data-mode="${target}"]`).click(); // 会触发 convert
+      toast('已交换输入与输出');
+    });
+
+    $('btnClear').addEventListener('click', () => {
+      inEl.value = '';
+      outEl.value = '';
+      $('stIn').textContent = '0';
+      $('stOut').textContent = '0';
+      $('stValid').textContent = '';
+      hideErr();
+      inEl.focus();
+    });
+
+    // 统一复制按钮
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.copy-btn');
+      if (!btn) return;
+      const text = $(btn.dataset.copyTarget)?.value ?? $(btn.dataset.copyTarget)?.textContent ?? '';
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        toast('已复制到剪贴板');
+      } catch { toast('复制失败，请手动选择复制'); }
+    });
+  </script>
+</body>
+</html>

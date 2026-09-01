@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>图片变清晰 - Web IT Tool Box</title>
+  <meta name="description" content="在线图片一键变清晰工具：锐化卷积增强边缘细节，可调强度与自动增强，前后对比预览，全部处理在浏览器本地完成，图片不上传。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✨</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / 图片变清晰</div>
+      <h1><span class="icon-tile cat-design">✨</span>图片一键变清晰</h1>
+      <p class="sub">锐化增强边缘细节 + 智能对比度微调，让模糊截图与照片更清晰，所有处理均在浏览器本地完成，图片不上传。</p>
+    </div>
+
+    <!-- ① 上传 -->
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>选择图片</div>
+      <div class="dropzone" id="dropzone">
+        <span class="dz-icon">✨</span>
+        <span class="dz-main">点击选择或拖拽图片到此处</span>
+        <span class="dz-sub">支持 JPG / PNG / WebP 等常见格式</span>
+        <input type="file" id="fileInput" accept="image/*">
+      </div>
+      <div id="fileInfo" class="stat-bar" hidden></div>
+      <div id="errBox" class="err-box" hidden></div>
+    </section>
+
+    <!-- ② 增强设置 -->
+    <section class="panel" id="settingsPanel" hidden>
+      <div class="panel-title"><span class="dot"></span>增强设置</div>
+
+      <div class="range-row">
+        <label for="strength">锐化强度</label>
+        <input type="range" id="strength" min="0" max="100" value="60">
+        <span class="range-val" id="strengthVal">60%</span>
+      </div>
+
+      <label class="radio-label" style="margin-top:12px;">
+        <input type="checkbox" id="autoEnhance" checked> 同时微调对比度与饱和度（推荐）
+      </label>
+
+      <div class="btn-row">
+        <button class="btn primary" id="btnRun">✨ 一键变清晰</button>
+      </div>
+      <p class="hint" id="processHint" hidden>⏳ 正在处理，请稍候……</p>
+    </section>
+
+    <!-- ③ 结果对比 -->
+    <section class="panel" id="resultPanel" hidden>
+      <div class="panel-title"><span class="dot"></span>效果对比（左原图 / 右增强后）</div>
+      <div class="compare-grid">
+        <div class="cmp">
+          <div class="cmp-label">原图</div>
+          <img id="cmpSrc" alt="原图">
+          <div class="stat-bar" style="justify-content:center;"><span id="cmpSrcInfo">—</span></div>
+        </div>
+        <div class="cmp">
+          <div class="cmp-label">增强后</div>
+          <img id="cmpOut" alt="增强结果">
+          <div class="stat-bar" style="justify-content:center;"><span id="cmpOutInfo">—</span></div>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn primary" id="btnDownload">⬇ 下载增强结果</button>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已开始下载</div>
+
+  <script src="/assets/js/image-utils.js"></script>
+  <script>
+    'use strict';
+    const $ = (id) => document.getElementById(id);
+    let current = null;
+    let output = null; // { blob, mime }
+
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toast._t);
+      toast._t = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+    function showErr(msg) { $('errBox').hidden = false; $('errBox').textContent = '❌ ' + msg; }
+    function hideErr() { $('errBox').hidden = true; }
+
+    /* ---------- 锐化卷积（十字 3×3 核，强度 0-100） ---------- */
+    function sharpenImageData(src, w, h, strength) {
+      const a = (strength / 100) * 1.2; // 锐化系数
+      const dst = new ImageData(w, h);
+      const s = src.data, d = dst.data;
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          if (x === 0 || y === 0 || x === w - 1 || y === h - 1) {
+            d[i] = s[i]; d[i + 1] = s[i + 1]; d[i + 2] = s[i + 2]; d[i + 3] = s[i + 3];
+            continue;
+          }
+          const up = i - w * 4, dn = i + w * 4, lf = i - 4, rt = i + 4;
+          for (let ch = 0; ch < 3; ch++) {
+            const v = s[i + ch] * (1 + 4 * a)
+              - a * (s[up + ch] + s[dn + ch] + s[lf + ch] + s[rt + ch]);
+            d[i + ch] = v < 0 ? 0 : v > 255 ? 255 : v;
+          }
+          d[i + 3] = s[i + 3];
+        }
+      }
+      return dst;
+    }
+
+    /* ---------- 处理流程 ---------- */
+    let runToken = 0; // 并发守卫：连续触发时仅保留最后一次处理的结果
+
+    async function process() {
+      if (!current) return;
+      const token = ++runToken;
+      const strength = Number($('strength').value);
+      const enhance = $('autoEnhance').checked;
+
+      $('processHint').hidden = false;
+      $('btnRun').disabled = true;
+      // 让「处理中」提示先渲染
+      await new Promise(r => setTimeout(r, 30));
+      if (token !== runToken) return;
+
+      try {
+        const w = current.width, h = current.height;
+        if (w * h > 40_000_000) throw new Error('图片过大（超过 4000 万像素），请先缩小后处理');
+
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        const ctx = c.getContext('2d', { willReadFrequently: true });
+        if (enhance) {
+          ctx.filter = 'contrast(104%) saturate(108%)';
+          ctx.drawImage(current.img, 0, 0);
+          ctx.filter = 'none';
+        } else {
+          ctx.drawImage(current.img, 0, 0);
+        }
+        if (strength > 0) {
+          const sharpened = sharpenImageData(ctx.getImageData(0, 0, w, h), w, h, strength);
+          ctx.putImageData(sharpened, 0, 0);
+        }
+        const mime = current.type === 'image/png' ? 'image/png' : 'image/jpeg';
+        const blob = await IMG.canvasToBlob(c, mime, 0.95);
+        if (token !== runToken) return;
+        output = { blob, mime };
+
+        $('cmpOut').src = URL.createObjectURL(blob);
+        $('cmpOutInfo').textContent = `锐化 ${strength}%${enhance ? ' + 自动增强' : ''} · ${IMG.formatBytes(blob.size)}`;
+        hideErr();
+      } catch (e) {
+        if (token === runToken) showErr(e.message || e);
+      } finally {
+        if (token === runToken) {
+          $('processHint').hidden = true;
+          $('btnRun').disabled = false;
+        }
+      }
+    }
+
+    /* ---------- 文件入口 ---------- */
+    async function handleFile(file) {
+      hideErr();
+      try {
+        const info = await IMG.loadImageFile(file);
+        current = info;
+        $('fileInfo').hidden = false;
+        $('fileInfo').innerHTML = `<span>📄 ${info.name}</span><span>尺寸：${info.width} × ${info.height}</span><span>大小：${IMG.formatBytes(info.size)}</span>`;
+        $('settingsPanel').hidden = false;
+        $('resultPanel').hidden = false;
+        $('cmpSrc').src = info.url;
+        $('cmpSrcInfo').textContent = `${info.width}×${info.height} · ${IMG.formatBytes(info.size)}`;
+        await process();
+      } catch (e) {
+        showErr(e.message || e);
+      }
+    }
+
+    /* ---------- 事件绑定 ---------- */
+    IMG.setupDrop($('dropzone'), handleFile);
+    $('dropzone').addEventListener('click', () => $('fileInput').click());
+    $('fileInput').addEventListener('change', (e) => {
+      if (e.target.files[0]) handleFile(e.target.files[0]);
+      e.target.value = '';
+    });
+
+    $('strength').addEventListener('input', () => { $('strengthVal').textContent = $('strength').value + '%'; });
+    $('strength').addEventListener('change', process);
+    $('autoEnhance').addEventListener('change', process);
+    $('btnRun').addEventListener('click', process);
+
+    $('btnDownload').addEventListener('click', () => {
+      if (!output) { toast('暂无可下载的结果'); return; }
+      IMG.downloadBlob(output.blob, `${IMG.baseName(current.name)}-sharpened.${IMG.extOf(output.mime)}`);
+      toast('已开始下载');
+    });
+  </script>
+</body>
+</html>

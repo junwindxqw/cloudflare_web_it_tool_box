@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>图片格式转换 - Web IT Tool Box</title>
+  <meta name="description" content="在线图片格式转换工具：PNG / JPEG / WebP 互转，支持透明底填充与质量调节，全部处理在浏览器本地完成，图片不上传。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔄</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / 图片格式转换</div>
+      <h1><span class="icon-tile cat-design">🔄</span>图片格式转换</h1>
+      <p class="sub">PNG / JPEG / WebP 互转，支持透明底填充与质量调节，所有处理均在浏览器本地完成，图片不上传。</p>
+    </div>
+
+    <!-- ① 上传 -->
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>选择图片</div>
+      <div class="dropzone" id="dropzone">
+        <span class="dz-icon">🖼️</span>
+        <span class="dz-main">点击选择或拖拽图片到此处</span>
+        <span class="dz-sub">支持 PNG / JPEG / WebP / GIF 等常见格式</span>
+        <input type="file" id="fileInput" accept="image/*">
+      </div>
+      <div id="fileInfo" class="stat-bar" hidden></div>
+      <div id="errBox" class="err-box" hidden></div>
+    </section>
+
+    <!-- ② 转换设置 -->
+    <section class="panel" id="settingsPanel" hidden>
+      <div class="panel-title"><span class="dot"></span>转换设置</div>
+      <div class="field-label" style="margin-top:0;">目标格式</div>
+      <div class="seg" id="fmtSeg">
+        <button class="active" data-mime="image/png">PNG</button>
+        <button data-mime="image/jpeg">JPEG</button>
+        <button data-mime="image/webp">WebP</button>
+      </div>
+
+      <div class="range-row" id="qualityRow" style="margin-top:14px;" hidden>
+        <label for="quality">质量</label>
+        <input type="range" id="quality" min="10" max="100" value="90">
+        <span class="range-val" id="qualityVal">90%</span>
+      </div>
+
+      <div class="range-row" id="bgRow" style="margin-top:14px;" hidden>
+        <label for="bgColor">透明底填充（JPEG 不支持透明）</label>
+        <input type="color" id="bgColor" value="#ffffff" style="width:52px; height:36px; padding:2px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--surface-2); cursor:pointer;">
+      </div>
+    </section>
+
+    <!-- ③ 结果 -->
+    <section class="panel" id="resultPanel" hidden>
+      <div class="panel-title"><span class="dot"></span>转换结果</div>
+      <div class="preview-box"><img id="previewImg" alt="转换结果预览"></div>
+      <div class="stat-bar">
+        <span>原始：<span id="stSrc">—</span></span>
+        <span>输出：<span id="stOut">—</span></span>
+        <span id="stRatio"></span>
+        <span id="stWarn" class="warn" hidden></span>
+      </div>
+      <div class="btn-row">
+        <button class="btn primary" id="btnDownload">⬇ 下载转换结果</button>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script src="/assets/js/image-utils.js"></script>
+  <script>
+    'use strict';
+    const $ = (id) => document.getElementById(id);
+    let current = null;   // { img, width, height, size, name }
+    let output = null;    // { blob, mime }
+    let mime = 'image/png';
+
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toast._t);
+      toast._t = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+    function showErr(msg) { errBox.hidden = false; errBox.textContent = '❌ ' + msg; }
+    function hideErr() { $('errBox').hidden = true; }
+
+    /* ---------- 文件入口（拖拽 / 点击 / 编程调用共用） ---------- */
+    async function handleFile(file) {
+      hideErr();
+      try {
+        const info = await IMG.loadImageFile(file);
+        current = info;
+        $('fileInfo').hidden = false;
+        $('fileInfo').innerHTML = `<span>📄 ${info.name}</span><span>尺寸：${info.width} × ${info.height}</span><span>大小：${IMG.formatBytes(info.size)}</span>`;
+        $('settingsPanel').hidden = false;
+        $('resultPanel').hidden = false;
+        await convert();
+      } catch (e) {
+        showErr(e.message || e);
+      }
+    }
+
+    /* ---------- 转换 ---------- */
+    async function convert() {
+      if (!current) return;
+      try {
+        const c = document.createElement('canvas');
+        c.width = current.width;
+        c.height = current.height;
+        const ctx = c.getContext('2d');
+        if (mime === 'image/jpeg') {
+          ctx.fillStyle = $('bgColor').value;
+          ctx.fillRect(0, 0, c.width, c.height);
+        }
+        ctx.drawImage(current.img, 0, 0);
+        const q = mime === 'image/png' ? undefined : Number($('quality').value) / 100;
+        let blob = await IMG.canvasToBlob(c, mime, q);
+        const warned = blob.type !== mime; // 浏览器不支持该格式编码时回退
+        output = { blob, mime: blob.type };
+
+        $('previewImg').src = URL.createObjectURL(blob);
+        $('stSrc').textContent = `${current.width}×${current.height} · ${IMG.formatBytes(current.size)}`;
+        $('stOut').textContent = `${IMG.extOf(blob.type).toUpperCase()} · ${IMG.formatBytes(blob.size)}`;
+        const ratio = blob.size / current.size;
+        $('stRatio').textContent = ratio <= 1
+          ? `体积为原图的 ${(ratio * 100).toFixed(0)}%`
+          : `比原图大 ${((ratio - 1) * 100).toFixed(0)}%`;
+        const warn = $('stWarn');
+        if (warned) {
+          warn.hidden = false;
+          warn.textContent = '⚠️ 当前浏览器不支持此格式编码，已回退为 ' + IMG.extOf(blob.type).toUpperCase();
+        } else {
+          warn.hidden = true;
+        }
+        hideErr();
+      } catch (e) {
+        showErr(e.message || e);
+      }
+    }
+
+    /* ---------- 事件绑定 ---------- */
+    IMG.setupDrop($('dropzone'), handleFile);
+    $('dropzone').addEventListener('click', () => $('fileInput').click());
+    $('fileInput').addEventListener('change', (e) => {
+      if (e.target.files[0]) handleFile(e.target.files[0]);
+      e.target.value = '';
+    });
+
+    $('fmtSeg').addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      mime = btn.dataset.mime;
+      $('fmtSeg').querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
+      const lossy = mime !== 'image/png';
+      $('qualityRow').hidden = !lossy;
+      $('bgRow').hidden = mime !== 'image/jpeg';
+      convert();
+    });
+
+    $('quality').addEventListener('input', () => { $('qualityVal').textContent = $('quality').value + '%'; });
+    $('quality').addEventListener('change', convert);
+    $('bgColor').addEventListener('change', convert);
+
+    $('btnDownload').addEventListener('click', () => {
+      if (!output) { toast('暂无可下载的结果'); return; }
+      IMG.downloadBlob(output.blob, `${IMG.baseName(current.name)}-converted.${IMG.extOf(output.mime)}`);
+      toast('已开始下载');
+    });
+  </script>
+</body>
+</html>

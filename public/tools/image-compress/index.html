@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>图片压缩 - Web IT Tool Box</title>
+  <meta name="description" content="在线图片压缩工具：调节质量与最大尺寸压缩 JPG / PNG / WebP，直观对比压缩前后体积，全部处理在浏览器本地完成，图片不上传。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗜️</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / 图片压缩</div>
+      <h1><span class="icon-tile cat-design">🗜️</span>图片压缩</h1>
+      <p class="sub">调节质量与最大边长压缩图片，直观对比压缩前后体积，所有处理均在浏览器本地完成，图片不上传。</p>
+    </div>
+
+    <!-- ① 上传 -->
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>选择图片</div>
+      <div class="dropzone" id="dropzone">
+        <span class="dz-icon">🗜️</span>
+        <span class="dz-main">点击选择或拖拽图片到此处</span>
+        <span class="dz-sub">支持 JPG / PNG / WebP 等常见格式</span>
+        <input type="file" id="fileInput" accept="image/*">
+      </div>
+      <div id="fileInfo" class="stat-bar" hidden></div>
+      <div id="errBox" class="err-box" hidden></div>
+    </section>
+
+    <!-- ② 压缩设置 -->
+    <section class="panel" id="settingsPanel" hidden>
+      <div class="panel-title"><span class="dot"></span>压缩设置</div>
+
+      <div class="range-row">
+        <label for="quality">压缩质量</label>
+        <input type="range" id="quality" min="10" max="100" value="70">
+        <span class="range-val" id="qualityVal">70%</span>
+      </div>
+
+      <div class="field-label">最大边长（超出将等比缩小）</div>
+      <div class="seg" id="dimSeg">
+        <button class="active" data-dim="0">不限制</button>
+        <button data-dim="1920">1920px</button>
+        <button data-dim="1280">1280px</button>
+        <button data-dim="800">800px</button>
+      </div>
+
+      <div class="field-label">输出格式</div>
+      <div class="seg" id="fmtSeg">
+        <button class="active" data-mime="auto">智能推荐</button>
+        <button data-mime="image/webp">WebP</button>
+        <button data-mime="image/jpeg">JPEG</button>
+        <button data-mime="image/png">PNG</button>
+      </div>
+      <p class="hint">智能推荐：JPEG / WebP 保持原格式，PNG 及其他格式转 WebP（压缩率更高且支持透明）。</p>
+    </section>
+
+    <!-- ③ 结果 -->
+    <section class="panel" id="resultPanel" hidden>
+      <div class="panel-title"><span class="dot"></span>压缩结果</div>
+      <div class="compare-grid">
+        <div class="cmp">
+          <div class="cmp-label">原图</div>
+          <img id="cmpSrc" alt="原图">
+          <div class="stat-bar" style="justify-content:center;"><span id="cmpSrcInfo">—</span></div>
+        </div>
+        <div class="cmp">
+          <div class="cmp-label">压缩后</div>
+          <img id="cmpOut" alt="压缩结果">
+          <div class="stat-bar" style="justify-content:center;"><span id="cmpOutInfo">—</span></div>
+        </div>
+      </div>
+      <div class="stat-bar" style="margin-top:14px;">
+        <span id="stRatio"></span>
+        <span id="stWarn" class="warn" hidden></span>
+      </div>
+      <div class="btn-row">
+        <button class="btn primary" id="btnDownload">⬇ 下载压缩结果</button>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已开始下载</div>
+
+  <script src="/assets/js/image-utils.js"></script>
+  <script>
+    'use strict';
+    const $ = (id) => document.getElementById(id);
+    let current = null;
+    let output = null;   // { blob, mime, width, height }
+    let maxDim = 0;
+    let fmt = 'auto';
+
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toast._t);
+      toast._t = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+    function showErr(msg) { $('errBox').hidden = false; $('errBox').textContent = '❌ ' + msg; }
+    function hideErr() { $('errBox').hidden = true; }
+
+    function resolveMime() {
+      if (fmt !== 'auto') return fmt;
+      if (current.type === 'image/jpeg' || current.type === 'image/webp') return current.type;
+      return 'image/webp'; // PNG 等转 WebP：更小且支持透明
+    }
+
+    /* ---------- 文件入口 ---------- */
+    async function handleFile(file) {
+      hideErr();
+      try {
+        const info = await IMG.loadImageFile(file);
+        current = info;
+        $('fileInfo').hidden = false;
+        $('fileInfo').innerHTML = `<span>📄 ${info.name}</span><span>尺寸：${info.width} × ${info.height}</span><span>大小：${IMG.formatBytes(info.size)}</span>`;
+        $('settingsPanel').hidden = false;
+        $('resultPanel').hidden = false;
+        $('cmpSrc').src = info.url;
+        await compress();
+      } catch (e) {
+        showErr(e.message || e);
+      }
+    }
+
+    /* ---------- 压缩 ---------- */
+    async function compress() {
+      if (!current) return;
+      try {
+        const scale = maxDim > 0 ? Math.min(1, maxDim / Math.max(current.width, current.height)) : 1;
+        const w = Math.max(1, Math.round(current.width * scale));
+        const h = Math.max(1, Math.round(current.height * scale));
+        const mime = resolveMime();
+
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        const ctx = c.getContext('2d');
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        if (mime === 'image/jpeg') {
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, w, h);
+        }
+        ctx.drawImage(current.img, 0, 0, w, h);
+        const q = mime === 'image/png' ? undefined : Number($('quality').value) / 100;
+        let blob = await IMG.canvasToBlob(c, mime, q);
+        const warned = blob.type !== mime;
+        output = { blob, mime: blob.type, width: w, height: h };
+
+        $('cmpOut').src = URL.createObjectURL(blob);
+        $('cmpSrcInfo').textContent = `${current.width}×${current.height} · ${IMG.formatBytes(current.size)}`;
+        $('cmpOutInfo').textContent = `${w}×${h} · ${IMG.formatBytes(blob.size)}`;
+        const ratio = blob.size / current.size;
+        $('stRatio').textContent = ratio <= 1
+          ? `🎉 体积为原图的 ${(ratio * 100).toFixed(0)}%（节省 ${IMG.formatBytes(current.size - blob.size)}）`
+          : `⚠️ 输出比原图大 ${((ratio - 1) * 100).toFixed(0)}%，可尝试降低质量或改用 WebP`;
+        const warn = $('stWarn');
+        if (warned) {
+          warn.hidden = false;
+          warn.textContent = '⚠️ 当前浏览器不支持此格式编码，已回退为 ' + IMG.extOf(blob.type).toUpperCase();
+        } else {
+          warn.hidden = true;
+        }
+        hideErr();
+      } catch (e) {
+        showErr(e.message || e);
+      }
+    }
+
+    /* ---------- 事件绑定 ---------- */
+    IMG.setupDrop($('dropzone'), handleFile);
+    $('dropzone').addEventListener('click', () => $('fileInput').click());
+    $('fileInput').addEventListener('change', (e) => {
+      if (e.target.files[0]) handleFile(e.target.files[0]);
+      e.target.value = '';
+    });
+
+    $('quality').addEventListener('input', () => { $('qualityVal').textContent = $('quality').value + '%'; });
+    $('quality').addEventListener('change', compress);
+    $('dimSeg').addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      maxDim = Number(btn.dataset.dim);
+      $('dimSeg').querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
+      compress();
+    });
+    $('fmtSeg').addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      fmt = btn.dataset.mime;
+      $('fmtSeg').querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
+      compress();
+    });
+
+    $('btnDownload').addEventListener('click', () => {
+      if (!output) { toast('暂无可下载的结果'); return; }
+      IMG.downloadBlob(output.blob, `${IMG.baseName(current.name)}-compressed.${IMG.extOf(output.mime)}`);
+      toast('已开始下载');
+    });
+  </script>
+</body>
+</html>

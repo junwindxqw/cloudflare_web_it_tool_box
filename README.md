@@ -30,11 +30,14 @@
 |:---:|:---|:---|:---:|
 | 🕐 开发 | **时间戳转换** | Unix 时间戳与日期互转，支持秒/毫秒自动识别、实时时钟 | ✅ 已上线 |
 | 开发 | **JSON 格式化** | 格式化、压缩、校验 JSON，语法高亮与错误行列定位 | ✅ 已上线 |
-| 开发 | Base64 编解码 | 文本与 Base64 互转 | 🚧 开发中 |
-| 开发 | URL 编解码 | URL 编码与解码 | 🚧 开发中 |
-| 设计 | 颜色转换 | HEX / RGB / HSL 互转 | 🚧 开发中 |
-| 运维 | Cron 表达式解析 | 可视化解析与下次执行时间预览 | 🚧 开发中 |
-| 测试 | 正则表达式测试 | 实时匹配高亮与分组捕获 | 🚧 开发中 |
+| 开发 | **Base64 编解码** | 文本与 Base64 互转，支持 UTF-8 中文与 URL 安全变体 | ✅ 已上线 |
+| 开发 | **URL 编解码** | 组件级 / 完整 URI 两种编码范围，实时转换 | ✅ 已上线 |
+| 设计 | **颜色转换** | HEX / RGB / HSL 互转，支持透明度与取色器预览 | ✅ 已上线 |
+| 设计 | **图片格式转换** | PNG / JPEG / WebP 互转，支持透明底填充与质量调节 | ✅ 已上线 |
+| 设计 | **图片压缩** | 质量与尺寸双重压缩，直观对比压缩前后体积 | ✅ 已上线 |
+| 设计 | **图片变清晰** | 一键锐化增强边缘细节，前后对比预览 | ✅ 已上线 |
+| 运维 | **Cron 表达式解析** | 可视化字段含义与最近 5 次执行时间推算 | ✅ 已上线 |
+| 测试 | **正则表达式测试** | 实时匹配高亮、计数与分组捕获详情 | ✅ 已上线 |
 
 > 💡 欢迎通过 [Issue](https://github.com/junwindxqw/cloudflare_web_it_tool_box/issues) 提出你想要的工具，或提交 PR 贡献新功能。
 
@@ -81,11 +84,28 @@ cloudflare_web_it_tool_box
 ├── public/                  # 静态资源根目录（Workers 托管目录）
 │   ├── index.html           # 主页 —— 功能入口（点击图标进入对应工具）
 │   ├── assets/
-│   │   └── css/style.css    # 公共样式
+│   │   ├── css/style.css    # 公共样式
+│   │   └── js/image-utils.js # 图片工具共享库
 │   └── tools/
 │       ├── timestamp/       # 时间戳转换工具
 │       │   └── index.html
-│       └── json/            # JSON 格式化工具
+│       ├── json/            # JSON 格式化工具
+│       │   └── index.html
+│       ├── base64/          # Base64 编解码工具
+│       │   └── index.html
+│       ├── url/             # URL 编解码工具
+│       │   └── index.html
+│       ├── color/           # 颜色转换工具
+│       │   └── index.html
+│       ├── image-convert/   # 图片格式转换工具
+│       │   └── index.html
+│       ├── image-compress/  # 图片压缩工具
+│       │   └── index.html
+│       ├── image-sharpen/   # 图片变清晰工具
+│       │   └── index.html
+│       ├── cron/            # Cron 表达式解析工具
+│       │   └── index.html
+│       └── regex/           # 正则表达式测试工具
 │           └── index.html
 ├── wrangler.jsonc           # Cloudflare Workers 配置
 ├── package.json
@@ -103,11 +123,14 @@ cloudflare_web_it_tool_box
 - [x] 项目骨架与主页功能入口
 - [x] 时间戳转换
 - [x] JSON 格式化
-- [ ] Base64 编解码
-- [ ] URL 编解码
-- [ ] 颜色转换
-- [ ] Cron 表达式解析
-- [ ] 正则表达式测试
+- [x] Base64 编解码
+- [x] URL 编解码
+- [x] 颜色转换
+- [x] 图片格式转换
+- [x] 图片压缩
+- [x] 图片变清晰
+- [x] Cron 表达式解析
+- [x] 正则表达式测试
 - [ ] 更多工具持续添加中 …
 
 ## 📄 License

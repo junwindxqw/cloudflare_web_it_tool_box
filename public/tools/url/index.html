@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>URL 编解码 - Web IT Tool Box</title>
+  <meta name="description" content="在线 URL 编码与解码工具：支持组件编码（encodeURIComponent）与完整 URI 编码（encodeURI），实时转换与错误提示，全部计算在浏览器本地完成。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔗</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / URL 编解码</div>
+      <h1><span class="icon-tile cat-dev">🔗</span>URL 编解码</h1>
+      <p class="sub">URL 编码与解码，支持组件级与完整 URI 两种范围，所有计算均在浏览器本地完成。</p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>转换方向</div>
+      <div class="seg" id="modeSeg">
+        <button class="active" data-mode="encode">文本 → URL 编码</button>
+        <button data-mode="decode">URL 编码 → 文本</button>
+      </div>
+      <div class="unit-switch" style="margin-top:12px;">
+        <span class="field-label" style="margin:0;">编码范围：</span>
+        <label class="radio-label"><input type="radio" name="scope" value="component" checked> URI 组件（保留字符更少，适合参数值）</label>
+        <label class="radio-label"><input type="radio" name="scope" value="full"> 完整 URI（保留 : / ? 等结构字符）</label>
+      </div>
+      <p class="hint" style="margin-top:8px;">组件编码对应 <code>encodeURIComponent</code>；完整 URI 编码对应 <code>encodeURI</code>，不会转义 <code>: / ? # [ ] @</code> 等 URL 结构字符。</p>
+    </section>
+
+    <section class="panel">
+      <div class="io-grid">
+        <div class="io-box">
+          <div class="io-label">
+            <span>输入</span>
+            <button class="copy-btn" data-copy-target="inText">复制</button>
+          </div>
+          <textarea id="inText" class="json-input" style="min-height:190px;" placeholder="在此输入文本或已编码的 URL…" spellcheck="false"></textarea>
+          <div class="stat-bar">
+            <span>字符：<span id="stIn">0</span></span>
+            <span id="stValid"></span>
+          </div>
+        </div>
+        <div class="io-box">
+          <div class="io-label">
+            <span>输出</span>
+            <button class="copy-btn" data-copy-target="outText">复制</button>
+          </div>
+          <textarea id="outText" class="json-input" style="min-height:190px;" readonly placeholder="转换结果将显示在这里…"></textarea>
+          <div class="stat-bar"><span>字符：<span id="stOut">0</span></span></div>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn" id="btnSwap">⇄ 交换输入输出</button>
+        <button class="btn" id="btnClear">🗑 清空</button>
+      </div>
+      <div id="errBox" class="err-box" hidden></div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+    const $ = (id) => document.getElementById(id);
+    const inEl = $('inText'), outEl = $('outText'), errBox = $('errBox');
+    let mode = 'encode';
+
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toast._t);
+      toast._t = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    const scopeFn = () =>
+      document.querySelector('input[name="scope"]:checked').value === 'component'
+        ? { enc: encodeURIComponent, dec: decodeURIComponent }
+        : { enc: encodeURI, dec: decodeURI };
+
+    function convert() {
+      const t = inEl.value;
+      $('stIn').textContent = t.length;
+      $('stValid').textContent = '';
+      if (!t) {
+        outEl.value = '';
+        $('stOut').textContent = '0';
+        hideErr();
+        return;
+      }
+      const { enc, dec } = scopeFn();
+      try {
+        outEl.value = mode === 'encode' ? enc(t) : dec(t);
+        hideErr();
+        if (mode === 'decode') {
+          $('stValid').textContent = '✅ 解码成功';
+          $('stValid').className = 'ok';
+        }
+      } catch (e) {
+        outEl.value = '';
+        if (mode === 'decode') {
+          $('stValid').textContent = '❌ 无效编码';
+          $('stValid').className = 'bad';
+          showErr('❌ 解码失败：包含不完整的百分号编码序列（如单独的 % 后未跟两位十六进制数字）。');
+        } else {
+          showErr('❌ 编码失败：' + (e.message || e));
+        }
+      }
+      $('stOut').textContent = outEl.value.length;
+    }
+
+    function showErr(msg) { errBox.hidden = false; errBox.textContent = msg; }
+    function hideErr() { errBox.hidden = true; }
+
+    $('modeSeg').addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      mode = btn.dataset.mode;
+      $('modeSeg').querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
+      inEl.placeholder = mode === 'encode' ? '在此输入要编码的文本…' : '在此输入要解码的 URL…';
+      convert();
+    });
+
+    document.querySelectorAll('input[name="scope"]').forEach(r => r.addEventListener('change', convert));
+    inEl.addEventListener('input', convert);
+
+    $('btnSwap').addEventListener('click', () => {
+      if (!outEl.value) { toast('暂无结果可交换'); return; }
+      inEl.value = outEl.value;
+      const target = mode === 'encode' ? 'decode' : 'encode';
+      $('modeSeg').querySelector(`[data-mode="${target}"]`).click();
+      toast('已交换输入与输出');
+    });
+
+    $('btnClear').addEventListener('click', () => {
+      inEl.value = '';
+      outEl.value = '';
+      $('stIn').textContent = '0';
+      $('stOut').textContent = '0';
+      $('stValid').textContent = '';
+      hideErr();
+      inEl.focus();
+    });
+
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.copy-btn');
+      if (!btn) return;
+      const src = $(btn.dataset.copyTarget);
+      const text = src?.value ?? src?.textContent ?? '';
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        toast('已复制到剪贴板');
+      } catch { toast('复制失败，请手动选择复制'); }
+    });
+  </script>
+</body>
+</html>
