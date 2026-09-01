@@ -51,41 +51,48 @@
       </p>
     </section>
 
-    <!-- ② 上传图片 -->
-    <section class="panel" id="workPanel" hidden>
+    <!-- ② 上传图片（永远显示，上传后才解锁步骤③） -->
+    <section class="panel" id="workPanel">
       <div class="panel-title"><span class="dot"></span>② 选择图片</div>
       <div class="dropzone" id="dropzone">
         <span class="dz-icon">🪄</span>
-        <span class="dz-main">点击选择或拖拽低清/模糊图片到此处</span>
-        <span class="dz-sub">支持 JPG / PNG / BMP；≤ 4 MB；短边建议 ≥ 128 px</span>
+        <span class="dz-main" id="dzMain">点击选择或拖拽低清/模糊图片到此处</span>
+        <span class="dz-sub" id="dzSub">支持 JPG / PNG / BMP；≤ 4 MB；短边建议 ≥ 128 px</span>
         <input type="file" id="fileInput" accept="image/jpeg,image/png,image/bmp">
       </div>
       <div id="fileInfo" class="stat-bar" hidden></div>
     </section>
 
-    <!-- ③ 处理与结果 -->
-    <section class="panel" id="resultPanel" hidden>
+    <!-- ③ 处理与结果（永远显示；空状态时显示引导文案） -->
+    <section class="panel" id="resultPanel">
       <div class="panel-title"><span class="dot"></span>③ AI 处理与对比</div>
       <div class="btn-row">
         <button class="btn primary" id="btnRun" disabled>✨ 调用百度 API 增强清晰度</button>
       </div>
       <p class="hint" id="processHint" hidden>⏳ 正在调用云端 AI 处理，通常 3-10 秒返回……</p>
 
-      <div class="compare-grid" style="margin-top:14px;">
-        <div class="cmp">
-          <div class="cmp-label">原图</div>
-          <img id="cmpSrc" alt="原图">
-          <div class="stat-bar" style="justify-content:center;"><span id="cmpSrcInfo">—</span></div>
+      <div id="emptyState" class="hint" style="text-align:center; padding:20px 0;">
+        📸 请先上传图片 → 然后点击上方按钮开始 AI 处理
+      </div>
+
+      <div id="compareArea" hidden>
+        <div class="compare-grid">
+          <div class="cmp">
+            <div class="cmp-label">原图</div>
+            <img id="cmpSrc" alt="原图">
+            <div class="stat-bar" style="justify-content:center;"><span id="cmpSrcInfo">—</span></div>
+          </div>
+          <div class="cmp">
+            <div class="cmp-label">AI 增强后</div>
+            <img id="cmpOut" alt="AI 增强结果">
+            <div class="stat-bar" style="justify-content:center;"><span id="cmpOutInfo">—</span></div>
+          </div>
         </div>
-        <div class="cmp">
-          <div class="cmp-label">AI 增强后</div>
-          <img id="cmpOut" alt="AI 增强结果">
-          <div class="stat-bar" style="justify-content:center;"><span id="cmpOutInfo">—</span></div>
+        <div class="btn-row">
+          <button class="btn primary" id="btnDownload" disabled>⬇ 下载增强结果</button>
         </div>
       </div>
-      <div class="btn-row">
-        <button class="btn primary" id="btnDownload" disabled>⬇ 下载增强结果</button>
-      </div>
+
       <div id="errBox" class="err-box" hidden></div>
     </section>
 
@@ -178,7 +185,7 @@
       saveKeys(apiKey, secretKey);
       setTokenStatus('✅ Access Token：已就绪', 'ok');
       setCountdown(Math.round((accessToken.expiresAt - Date.now()) / 1000));
-      toast('✅ Access Token 获取成功');
+      toast('✅ Access Token 获取成功，可以上传图片了');
       clearInterval(setCountdown._t);
       setCountdown._t = setInterval(() => {
         const left = Math.round((accessToken.expiresAt - Date.now()) / 1000);
@@ -187,8 +194,13 @@
           accessToken = null;
           setTokenStatus('⚠️ Access Token：已过期，请重新获取');
           clearInterval(setCountdown._t);
+          $('btnRun').disabled = true;
         }
       }, 60000);
+      // 启用「开始处理」按钮（仅在已上传图片时）
+      if (current) $('btnRun').disabled = false;
+      // 平滑滚动到上传区
+      $('workPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
     /* ===== 调用百度图像清晰度增强（经 Cloudflare Worker 代理） ===== */
@@ -238,11 +250,14 @@
         current = info;
         $('fileInfo').hidden = false;
         $('fileInfo').innerHTML = `<span>📄 ${info.name}</span><span>尺寸：${info.width} × ${info.height}</span><span>大小：${IMG.formatBytes(info.size)}</span>`;
-        $('workPanel').hidden = false;
-        $('resultPanel').hidden = false;
+        // 上传成功后切换③区：隐藏空状态、显示对比区 + 启用运行按钮（前提是 token 已就绪）
+        $('emptyState').hidden = true;
+        $('compareArea').hidden = false;
         $('cmpSrc').src = info.url;
         $('cmpSrcInfo').textContent = `${info.width}×${info.height} · ${IMG.formatBytes(info.size)}`;
-        $('btnRun').disabled = false;
+        $('btnRun').disabled = !accessToken;
+        // 平滑滚动到对比区
+        $('resultPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
       } catch (e) {
         showErr(e.message || e);
       }
