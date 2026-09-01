@@ -29,26 +29,36 @@
       <p class="sub">调用百度智能云"图像清晰度增强"云端 API，对低清、模糊、压缩噪声照片进行 AI 修复与重绘。建议先<a href="https://ai.baidu.com/tech/imageprocess/image_definition_enhance" target="_blank" rel="noopener">开通服务领取免费额度</a>。</p>
     </div>
 
-    <!-- ① API 凭据 -->
+    <!-- ① API 凭据（默认收起，编辑时展开） -->
     <section class="panel">
-      <div class="panel-title"><span class="dot"></span>① 百度智能云 API Key</div>
-      <label class="field-label" for="apiKey" style="margin-top:0;">API Key（client_id）</label>
-      <input type="text" id="apiKey" class="mono" placeholder="从百度智能云控制台 → 图像清晰度增强 → 应用列表获取" autocomplete="off" spellcheck="false">
-
-      <label class="field-label" for="secretKey">Secret Key（client_secret）</label>
-      <input type="password" id="secretKey" class="mono" placeholder="仅保存在浏览器本地，关闭页面即清除" autocomplete="off" spellcheck="false">
-
-      <div class="btn-row">
-        <button class="btn" id="btnGetToken">🔑 获取 Access Token</button>
-        <button class="btn" id="btnClearKey">🗑 清除凭据</button>
+      <div class="panel-title">
+        <span class="dot"></span>
+        <span>① 百度智能云 API Key</span>
+        <span class="header-spacer"></span>
+        <button class="btn btn-sm" id="btnEditKey">✏️ 编辑</button>
       </div>
-      <div class="stat-bar">
-        <span id="tokenStatus">⏳ Access Token：未获取</span>
-        <span id="tokenCountdown"></span>
+
+      <!-- 收起态：一行动态摘要（自动填充或未配置时显示） -->
+      <div class="key-summary" id="keySummary">
+        <span id="keySummaryText">🔑 未配置 API Key</span>
+        <span id="tokenStatusInline"></span>
+        <span id="tokenCountdownInline"></span>
       </div>
-      <p class="hint">
-        🔒 你的 API Key / Secret Key 仅保存在浏览器本地（localStorage），不上传到任何服务器。Access Token 也仅在本页使用。
-      </p>
+
+      <!-- 展开态：编辑表单（默认 hidden） -->
+      <div id="keyEditor" hidden>
+        <label class="field-label" for="apiKey" style="margin-top:0;">API Key（client_id）</label>
+        <input type="text" id="apiKey" class="mono" placeholder="从百度智能云控制台 → 图像清晰度增强 → 应用列表获取" autocomplete="off" spellcheck="false">
+
+        <label class="field-label" for="secretKey">Secret Key（client_secret）</label>
+        <input type="password" id="secretKey" class="mono" placeholder="仅保存在浏览器本地，关闭页面即清除" autocomplete="off" spellcheck="false">
+
+        <div class="btn-row">
+          <button class="btn primary" id="btnGetToken">🔑 获取 Access Token</button>
+          <button class="btn" id="btnClearKey">🗑 清除凭据</button>
+          <button class="btn" id="btnCancelEdit">↩ 收起</button>
+        </div>
+      </div>
     </section>
 
     <!-- ② 上传图片（永远显示，上传后才解锁步骤③） -->
@@ -139,17 +149,45 @@
     function clearKeys() {
       try { localStorage.removeItem(STORAGE_KEY); } catch {}
     }
-    function setTokenStatus(text, kind = '') {
+function setTokenStatus(text, kind = '') {
+      // 兼容旧调用（无 inline 元素时容错）
       const el = $('tokenStatus');
-      el.textContent = text;
-      el.className = kind;
+      if (el) { el.textContent = text; el.className = kind; }
+      const elInline = $('tokenStatusInline');
+      if (elInline) {
+        elInline.textContent = text;
+        elInline.style.color = kind === 'ok' ? 'var(--ok)' : ((kind === 'bad' || kind === 'warn') ? 'var(--danger)' : '');
+      }
     }
     function setCountdown(seconds) {
       const el = $('tokenCountdown');
-      if (seconds <= 0) { el.textContent = ''; return; }
-      const days = Math.floor(seconds / 86400);
-      const hours = Math.floor((seconds % 86400) / 3600);
-      el.textContent = days > 0 ? `（${days} 天 ${hours} 小时后过期）` : `（${hours} 小时后过期）`;
+      if (el) {
+        if (seconds <= 0) { el.textContent = ''; }
+        else {
+          const days = Math.floor(seconds / 86400);
+          const hours = Math.floor((seconds % 86400) / 3600);
+          el.textContent = days > 0 ? days + ' 天 ' + hours + ' 小时后过期' : hours + ' 小时后过期';
+        }
+      }
+      const elInline = $('tokenCountdownInline');
+      if (elInline) {
+        if (seconds <= 0) elInline.textContent = '';
+        else {
+          const days = Math.floor(seconds / 86400);
+          const hours = Math.floor((seconds % 86400) / 3600);
+          elInline.textContent = days > 0 ? '（' + days + ' 天后过期）' : '（' + hours + ' 小时后过期）';
+        }
+      }
+    }
+    function updateKeySummary() {
+      const summary = $('keySummaryText');
+      const apiKey = $('apiKey').value.trim();
+      if (apiKey) {
+        const last4 = apiKey.slice(-4);
+        summary.textContent = '🔑 API Key 已配置（后 4 位：' + last4 + '）';
+      } else {
+        summary.textContent = '🔑 未配置 API Key';
+      }
     }
 
     /* ===== 获取百度 Access Token（经 Cloudflare Worker 代理） ===== */
@@ -324,9 +362,28 @@
       }
     }
 
+    /* ===== 折叠/展开 ===== */
+    function showEditor() {
+      $('keyEditor').hidden = false;
+      $('btnEditKey').hidden = true;
+      $('keySummary').hidden = true;
+    }
+    function collapseEditor() {
+      $('keyEditor').hidden = true;
+      $('btnEditKey').hidden = false;
+      $('keySummary').hidden = false;
+      updateKeySummary();
+    }
+
     /* ===== 事件绑定 ===== */
+    $('btnEditKey').addEventListener('click', showEditor);
+    $('btnCancelEdit').addEventListener('click', collapseEditor);
     $('btnGetToken').addEventListener('click', async () => {
-      try { await fetchAccessToken(); } catch (e) { showErr(e.message || e); }
+      try {
+        await fetchAccessToken();
+        // 获取 Token 成功后自动收起编辑器
+        if (accessToken) collapseEditor();
+      } catch (e) { showErr(e.message || e); }
     });
     $('btnClearKey').addEventListener('click', () => {
       $('apiKey').value = '';
@@ -336,10 +393,16 @@
       setTokenStatus('⏳ Access Token：未获取');
       $('tokenCountdown').textContent = '';
       clearInterval(setCountdown._t);
+      updateKeySummary();
       toast('凭据已清除');
     });
-    $('apiKey').addEventListener('change', () => accessToken = null);
-    $('secretKey').addEventListener('change', () => accessToken = null);
+    $('apiKey').addEventListener('input', () => {
+      accessToken = null;
+      updateKeySummary();
+    });
+    $('secretKey').addEventListener('input', () => {
+      accessToken = null;
+    });
 
     IMG.setupDrop($('dropzone'), handleFile);
     $('dropzone').addEventListener('click', () => $('fileInput').click());
@@ -354,13 +417,16 @@
       toast('已开始下载');
     });
 
-    /* ===== 启动时自动恢复凭据（不自动获取 token，让用户主动点击） ===== */
+    /* ===== 启动时自动恢复凭据 + 显示摘要 ===== */
     (function init() {
       const keys = loadKeys();
       if (keys && keys.apiKey && keys.secretKey) {
         $('apiKey').value = keys.apiKey;
         $('secretKey').value = keys.secretKey;
-        setTokenStatus('ℹ️ 检测到本地保存的凭据，点击「获取 Access Token」开始');
+        setTokenStatus('ℹ️ 已配置凭据，点击右上「编辑」修改，或点击「获取 Access Token」开始');
+        updateKeySummary();
+      } else {
+        showEditor(); // 首次访问直接展开引导填写
       }
     })();
   </script>

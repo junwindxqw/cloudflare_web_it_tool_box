@@ -742,6 +742,28 @@ input[type="range"] { flex: 1; accent-color: var(--accent); cursor: pointer; }
 .compare-grid .cmp img { max-width: 100%; max-height: 320px; border-radius: 6px; }
 .compare-grid .cmp .cmp-label { font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 8px; }
 
+/* 折叠面板：收起态摘要 */
+.key-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  padding: 10px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--text-2);
+  margin-top: 14px;
+}
+.key-summary #keySummaryText { font-weight: 600; color: var(--text); }
+
+/* 小按钮（用于折叠面板头右侧） */
+.btn.btn-sm {
+  padding: 4px 12px;
+  font-size: 12.5px;
+}
+
 @media (max-width: 640px) {
   .compare-grid { grid-template-columns: 1fr; }
 }
