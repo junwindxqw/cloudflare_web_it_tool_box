@@ -7,6 +7,63 @@
   <meta name="description" content="在线 AI 图片超分辨率工具：基于 ESRGAN 模型放大 2 倍并重建细节，让低清模糊照片与截图真正变清晰。处理在浏览器本地完成，图片不上传。">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🪄</text></svg>">
   <link rel="stylesheet" href="/assets/css/style.css">
+  <!-- 本地 vendor：TF.js + Upscaler + ESRGAN-slim 模型（UMD，无依赖外部 CDN） -->
+  <script>window.V=$(id=>document.getElementById(id));</script>
+  <script src="/vendor/tf.min.js?v=1"></script>
+  <script src="/vendor/upscaler.min.js?v=1"></script>
+  <script src="/vendor/esrgan-slim-2x.min.js?v=1"></script>
+<script src="/vendor/default-model.min.js?v=1"></script>
+  <script>
+    // 重写 fetch：把 upscaler 内部对 jsdelivr CDN 的模型请求拦截重定向到本地
+    // (public/upjs/esrgan-slim@1/models/x2/ 与 bin 文件)。这是最稳的拦截层，
+    // 因为 upscaler 内部使用 tfjs 的 loadLayersModel，而 tfjs 使用 fetch 加载 model.json。
+    (function () {
+      const _origFetch = window.fetch.bind(window);
+      window.fetch = function (input, init) {
+        let url = typeof input === 'string' ? input : (input && input.url);
+        if (typeof url === 'string') {
+          // 把任意 jsdelivr/unpkg 上的 ESRGAN 模型路径映射到本地
+          const m = url.match(/^https?:\/\/(?:cdn\.jsdelivr\.net\/npm|unpkg\.com)\/[^/]+\/(models\/x\d+\/.+)$/);
+          if (m) {
+            const localUrl = location.origin + '/upjs/esrgan-slim@1/' + m[1];
+            console.log('[upscale] CDN → 本地:', url, '→', localUrl);
+            return _origFetch(localUrl, init);
+          }
+        }
+        return _origFetch(input, init);
+      };
+    })();
+    // 同时 patch tfjs 加载函数作为兜底（防止 tfjs 内部使用非 fetch 的加载路径）
+    function _patchTf() {
+      if (!window.tf || !window.tf.loadLayersModel) { setTimeout(_patchTf, 50); return; }
+      const _llm = window.tf.loadLayersModel.bind(window.tf);
+      const _lgm = window.tf.loadGraphModel.bind(window.tf);
+      window.tf.loadLayersModel = function (path, ...rest) {
+        const u = typeof path === 'string' ? path : (path && path.path);
+        if (typeof u === 'string') {
+          const m = u.match(/jsdelivr\.net\/npm\/[^/]+\/(models\/x\d+\/.+)$/);
+          if (m) {
+            const localUrl = location.origin + '/upjs/esrgan-slim@1/' + m[1];
+            console.log('[upscale] tf.loadLayersModel → 本地:', localUrl);
+            return _llm(localUrl, ...rest);
+          }
+        }
+        return _llm(path, ...rest);
+      };
+      window.tf.loadGraphModel = function (path, ...rest) {
+        const u = typeof path === 'string' ? path : (path && path.path);
+        if (typeof u === 'string') {
+          const m = u.match(/jsdelivr\.net\/npm\/[^/]+\/(models\/x\d+\/.+)$/);
+          if (m) {
+            const localUrl = location.origin + '/upjs/esrgan-slim@1/' + m[1];
+            return _lgm(localUrl, ...rest);
+          }
+        }
+        return _lgm(path, ...rest);
+      };
+    }
+    _patchTf();
+  </script>
 </head>
 <body>
 
@@ -93,7 +150,7 @@
   <div id="toast">已开始下载</div>
 
   <script src="/assets/js/image-utils.js"></script>
-  <script type="module">
+  <script>
     'use strict';
     const $ = (id) => document.getElementById(id);
     let current = null;
@@ -118,45 +175,33 @@
       el.className = kind;
     }
 
-    // jsdelivr 的 +esm 路径会把 CJS/UMD 包打包成 ES 模块，动态 import 自动处理嵌套依赖
-    const TFJS_URL = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js';
-    const UPSCALER_URL = 'https://cdn.jsdelivr.net/npm/upscaler@1.0.0/+esm';
-    const ESRGAN_X2_URL = 'https://cdn.jsdelivr.net/npm/@upscalerjs/esrgan-slim@1.0.0/2x/+esm';
+    function checkDeps() {
+      if (typeof tf === 'undefined') return 'TensorFlow.js 未加载（/vendor/tf.min.js）';
+      if (typeof Upscaler === 'undefined') return 'Upscaler 引擎未加载（/vendor/upscaler.min.js）';
+      if (typeof ESRGANSlim2x === 'undefined') return 'ESRGAN-slim 模型定义未加载（/vendor/esrgan-slim-2x.min.js）';
+      return null;
+    }
 
     async function loadModel() {
       if (modelReady) return upscaler;
       if (modelLoading) {
-        // 已有加载任务，等待
         await new Promise(r => { const i = setInterval(() => { if (modelReady || !modelLoading) { clearInterval(i); r(); } }, 100); });
         return upscaler;
       }
       modelLoading = true;
       $('modelProgress').hidden = false;
       $('modelBar').style.width = '0%';
-      $('modelHint').textContent = '正在从 CDN 加载 TF.js 与 + ESRGAN-slim 模型（约 3 MB）……';
+      $('modelHint').textContent = '正在初始化 AI 引擎……';
       setStatus('⏳ 模型：加载中');
       try {
-        // 动态 import：jsdelivr 自动打包所有嵌套依赖
-        const [tfModule, upscalerModule, modelModule] = await Promise.all([
-          import(TFJS_URL),
-          import(UPSCALER_URL),
-          import(ESRGAN_X2_URL),
-        ]);
-        // jsdelivr ESM 包装：upscaler 默认导出本身就是 Upscaler 类；模型默认导出是模型定义
-        const tf = tfModule.default || tfModule.tf || tfModule;
-        const Upscaler = upscalerModule.default || upscalerModule.Upscaler;
-        const x2Model = modelModule.default || modelModule;
-        if (!Upscaler) {
-          console.error('upscalerModule shape:', Object.keys(upscalerModule));
-          throw new Error('Upscaler 引擎加载失败（模块结构变化）。详情见浏览器控制台。');
-        }
-        window.tf = tf; // 暴露供调试
-        $('modelBar').style.width = '60%';
-        $('modelHint').textContent = 'TF.js 已就绪，正在初始化 AI 引擎……';
+        const depErr = checkDeps();
+        if (depErr) throw new Error(depErr);
+        $('modelBar').style.width = '20%';
+        $('modelHint').textContent = 'TF.js 与 Upscaler 已就绪，正在加载 ESRGAN 模型权重……';
 
-        upscaler = new Upscaler({ model: x2Model });
+        upscaler = new Upscaler({ model: ESRGANSlim2x });
 
-        // 预热：跑一次最小图，触发模型权重下载
+        // 预热：触发模型权重下载
         await upscaler.upscale(new Image(64, 64), { output: 'src' });
         $('modelBar').style.width = '100%';
         $('modelHint').textContent = '模型加载完成，可以开始处理。';
@@ -240,7 +285,6 @@
         $('cmpSrc').src = info.url;
         $('cmpSrcInfo').textContent = `${info.width}×${info.height} · ${IMG.formatBytes(info.size)}`;
         $('btnRun').disabled = false;
-        // 自动开始：先确保模型加载，再自动跑一次
         try { await loadModel(); } catch (e) { showErr(e.message || e); return; }
         if (modelReady) process();
       } catch (e) {
@@ -248,7 +292,6 @@
       }
     }
 
-    // 测试时需要从外部触发：暴露入口到 window
     window.__upscale_test = { handleFile, loadModel, process, get current() { return current; }, get output() { return output; } };
 
     IMG.setupDrop($('dropzone'), handleFile);
