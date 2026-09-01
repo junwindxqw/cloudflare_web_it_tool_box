@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI 图片超分辨率 - Web IT Tool Box</title>
+  <meta name="description" content="在线 AI 图片超分辨率工具：基于 ESRGAN 模型放大 2 倍并重建细节，让低清模糊照片与截图真正变清晰。处理在浏览器本地完成，图片不上传。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🪄</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / AI 图片超分辨率</div>
+      <h1><span class="icon-tile cat-design">🪄</span>AI 图片超分辨率</h1>
+      <p class="sub">基于 ESRGAN 神经网络在浏览器本地放大图片 2 倍并重建细节，让低清模糊照片真正变清晰。</p>
+    </div>
+
+    <!-- ① 上传 -->
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>选择图片</div>
+      <div class="dropzone" id="dropzone">
+        <span class="dz-icon">🪄</span>
+        <span class="dz-main">点击选择或拖拽低清/模糊图片到此处</span>
+        <span class="dz-sub">支持 JPG / PNG / WebP；推荐 &lt;2000×2000 像素，2 倍放大后输出</span>
+        <input type="file" id="fileInput" accept="image/*">
+      </div>
+      <div id="fileInfo" class="stat-bar" hidden></div>
+      <div id="errBox" class="err-box" hidden></div>
+    </section>
+
+    <!-- ② 处理面板 -->
+    <section class="panel" id="workPanel" hidden>
+      <div class="panel-title"><span class="dot"></span>AI 模型与处理</div>
+
+      <div class="stat-bar" style="margin-top:0;">
+        <span id="modelStatus">⏳ 模型：未加载</span>
+      </div>
+      <div id="modelProgress" hidden style="margin:8px 0 0;">
+        <div style="height:6px; background:var(--surface-2); border:1px solid var(--border); border-radius:999px;">
+          <div id="modelBar" style="height:100%; width:0%; background:linear-gradient(90deg, var(--accent), #60a5fa); border-radius:999px; transition:width 0.15s;"></div>
+        </div>
+        <p class="hint" id="modelHint" style="margin-top:6px;">准备下载模型权重（约 1 MB）……</p>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn primary" id="btnRun" disabled>🪄 AI 超分辨率放大 2 倍</button>
+      </div>
+      <p class="hint" id="processHint" hidden>⏳ 正在推理，请稍候（首次约需 5-15 秒，依赖设备性能）……</p>
+    </section>
+
+    <!-- ③ 结果对比 -->
+    <section class="panel" id="resultPanel" hidden>
+      <div class="panel-title"><span class="dot"></span>效果对比（左原图 / 右 AI 超分）</div>
+      <div class="compare-grid">
+        <div class="cmp">
+          <div class="cmp-label">原图</div>
+          <img id="cmpSrc" alt="原图">
+            <div class="stat-bar" style="justify-content:center;"><span id="cmpSrcInfo">—</span></div>
+        </div>
+        <div class="cmp">
+          <div class="cmp-label">AI 放大后</div>
+          <img id="cmpOut" alt="AI 超分结果">
+            <div class="stat-bar" style="justify-content:center;"><span id="cmpOutInfo">—</span></div>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn primary" id="btnDownload">⬇ 下载超分结果（PNG）</button>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已开始下载</div>
+
+  <script src="/assets/js/image-utils.js"></script>
+  <script type="module">
+    'use strict';
+    const $ = (id) => document.getElementById(id);
+    let current = null;
+    let output = null;
+    let runToken = 0;
+    let upscaler = null;
+    let modelReady = false;
+    let modelLoading = false;
+
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toast._t);
+      toast._t = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+    function showErr(msg) { $('errBox').hidden = false; $('errBox').textContent = '❌ ' + msg; }
+    function hideErr() { $('errBox').hidden = true; }
+    function setStatus(text, kind = '') {
+      const el = $('modelStatus');
+      el.textContent = text;
+      el.className = kind;
+    }
+
+    // jsdelivr 的 +esm 路径会把 CJS/UMD 包打包成 ES 模块，动态 import 自动处理嵌套依赖
+    const TFJS_URL = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js';
+    const UPSCALER_URL = 'https://cdn.jsdelivr.net/npm/upscaler@1.0.0/+esm';
+    const ESRGAN_X2_URL = 'https://cdn.jsdelivr.net/npm/@upscalerjs/esrgan-slim@1.0.0/2x/+esm';
+
+    async function loadModel() {
+      if (modelReady) return upscaler;
+      if (modelLoading) {
+        // 已有加载任务，等待
+        await new Promise(r => { const i = setInterval(() => { if (modelReady || !modelLoading) { clearInterval(i); r(); } }, 100); });
+        return upscaler;
+      }
+      modelLoading = true;
+      $('modelProgress').hidden = false;
+      $('modelBar').style.width = '0%';
+      $('modelHint').textContent = '正在从 CDN 加载 TF.js 与 + ESRGAN-slim 模型（约 3 MB）……';
+      setStatus('⏳ 模型：加载中');
+      try {
+        // 动态 import：jsdelivr 自动打包所有嵌套依赖
+        const [tfModule, upscalerModule, modelModule] = await Promise.all([
+          import(TFJS_URL),
+          import(UPSCALER_URL),
+          import(ESRGAN_X2_URL),
+        ]);
+        // jsdelivr ESM 包装：upscaler 默认导出本身就是 Upscaler 类；模型默认导出是模型定义
+        const tf = tfModule.default || tfModule.tf || tfModule;
+        const Upscaler = upscalerModule.default || upscalerModule.Upscaler;
+        const x2Model = modelModule.default || modelModule;
+        if (!Upscaler) {
+          console.error('upscalerModule shape:', Object.keys(upscalerModule));
+          throw new Error('Upscaler 引擎加载失败（模块结构变化）。详情见浏览器控制台。');
+        }
+        window.tf = tf; // 暴露供调试
+        $('modelBar').style.width = '60%';
+        $('modelHint').textContent = 'TF.js 已就绪，正在初始化 AI 引擎……';
+
+        upscaler = new Upscaler({ model: x2Model });
+
+        // 预热：跑一次最小图，触发模型权重下载
+        await upscaler.upscale(new Image(64, 64), { output: 'src' });
+        $('modelBar').style.width = '100%';
+        $('modelHint').textContent = '模型加载完成，可以开始处理。';
+        modelReady = true;
+        setStatus('✅ 模型：已就绪（ESRGAN-slim ×2）', 'ok');
+        setTimeout(() => { $('modelProgress').hidden = true; }, 1200);
+        return upscaler;
+      } catch (e) {
+        setStatus('❌ 模型：加载失败');
+        $('modelHint').textContent = (e.message || e);
+        throw e;
+      } finally {
+        modelLoading = false;
+      }
+    }
+
+    async function process() {
+      if (!current) return;
+      try { await loadModel(); } catch (e) { showErr(e.message || e); return; }
+      if (!modelReady) return;
+
+      const token = ++runToken;
+      $('processHint').hidden = false;
+      $('btnRun').disabled = true;
+      await new Promise(r => setTimeout(r, 30));
+      if (token !== runToken) return;
+
+      try {
+        const w = current.width, h = current.height;
+        if (w * h > 4_000_000) throw new Error('图片过大（超过 400 万像素），请先缩小后再处理');
+
+        const t0 = performance.now();
+        const src = await upscaler.upscale(current.img, {
+          output: 'src',
+          patchSize: 64,
+          padding: 4,
+          progress: (rate) => {
+            if (token !== runToken) return;
+            $('modelBar').style.width = (rate * 100).toFixed(0) + '%';
+            $('modelHint').textContent = `推理中：${(rate * 100).toFixed(0)}%`;
+          }
+        });
+        if (token !== runToken) return;
+
+        const c = document.createElement('canvas');
+        const tmp = new Image();
+        await new Promise((res, rej) => {
+          tmp.onload = res; tmp.onerror = rej;
+          tmp.src = typeof src === 'string' ? src : src.src;
+        });
+        c.width = tmp.naturalWidth; c.height = tmp.naturalHeight;
+        c.getContext('2d').drawImage(tmp, 0, 0);
+
+        const blob = await IMG.canvasToBlob(c, 'image/png');
+        if (token !== runToken) return;
+        output = { blob, mime: 'image/png', width: c.width, height: c.height };
+
+        $('cmpOut').src = URL.createObjectURL(blob);
+        $('cmpOutInfo').textContent = `${c.width}×${c.height}（×2）· ${IMG.formatBytes(blob.size)}`;
+        hideErr();
+        toast(`✅ 处理完成（${Math.round(performance.now() - t0)}ms）`);
+      } catch (e) {
+        if (token === runToken) showErr(e.message || e);
+      } finally {
+        if (token === runToken) {
+          $('processHint').hidden = true;
+          $('btnRun').disabled = false;
+        }
+      }
+    }
+
+    async function handleFile(file) {
+      hideErr();
+      try {
+        const info = await IMG.loadImageFile(file);
+        current = info;
+        $('fileInfo').hidden = false;
+        $('fileInfo').innerHTML = `<span>📄 ${info.name}</span><span>尺寸：${info.width} × ${info.height}</span><span>大小：${IMG.formatBytes(info.size)}</span>`;
+        $('workPanel').hidden = false;
+        $('resultPanel').hidden = false;
+        $('cmpSrc').src = info.url;
+        $('cmpSrcInfo').textContent = `${info.width}×${info.height} · ${IMG.formatBytes(info.size)}`;
+        $('btnRun').disabled = false;
+        // 自动开始：先确保模型加载，再自动跑一次
+        try { await loadModel(); } catch (e) { showErr(e.message || e); return; }
+        if (modelReady) process();
+      } catch (e) {
+        showErr(e.message || e);
+      }
+    }
+
+    // 测试时需要从外部触发：暴露入口到 window
+    window.__upscale_test = { handleFile, loadModel, process, get current() { return current; }, get output() { return output; } };
+
+    IMG.setupDrop($('dropzone'), handleFile);
+    $('dropzone').addEventListener('click', () => $('fileInput').click());
+    $('fileInput').addEventListener('change', (e) => {
+      if (e.target.files[0]) handleFile(e.target.files[0]);
+      e.target.value = '';
+    });
+    $('btnRun').addEventListener('click', process);
+    $('btnDownload').addEventListener('click', () => {
+      if (!output) { toast('暂无可下载的结果'); return; }
+      IMG.downloadBlob(output.blob, `${IMG.baseName(current.name)}-upscaled-2x.png`);
+      toast('已开始下载');
+    });
+  </script>
+</body>
+</html>
