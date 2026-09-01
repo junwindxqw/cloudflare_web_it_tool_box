@@ -1,10 +1,12 @@
 {
-  // Cloudflare Workers 配置 —— 纯静态站点，免费托管
+  // Cloudflare Workers 配置 —— 静态资源 + API 代理
   // 文档：https://developers.cloudflare.com/workers/wrangler/configuration/
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "web-it-tool-box",
   "compatibility_date": "2026-08-30",
+  "main": "./src/worker.js",
   "assets": {
-    "directory": "./public"
+    "directory": "./public",
+    "binding": "ASSETS"
   }
 }

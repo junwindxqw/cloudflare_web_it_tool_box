@@ -145,20 +145,27 @@
       el.textContent = days > 0 ? `（${days} 天 ${hours} 小时后过期）` : `（${hours} 小时后过期）`;
     }
 
-    /* ===== 获取百度 Access Token（OAuth 2.0 client_credentials） ===== */
+    /* ===== 获取百度 Access Token（经 Cloudflare Worker 代理） ===== */
     async function fetchAccessToken() {
       const apiKey = $('apiKey').value.trim();
       const secretKey = $('secretKey').value.trim();
       if (!apiKey || !secretKey) throw new Error('请先填写 API Key 与 Secret Key');
 
       setTokenStatus('⏳ 正在获取 Access Token…');
-      const tokenUrl = 'https://aip.baidubce.com/oauth/2.0/token';
-      const params = new URLSearchParams({
+      const body = new URLSearchParams({
         grant_type: 'client_credentials',
         client_id: apiKey,
         client_secret: secretKey,
       });
-      const resp = await fetch(`${tokenUrl}?${params}`, { method: 'POST' });
+      const resp = await fetch('/api/baidu/oauth/2.0/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'X-Baidu-Api-Key': apiKey,
+          'X-Baidu-Secret-Key': secretKey,
+        },
+        body,
+      });
       const json = await resp.json().catch(() => null);
       if (!json) throw new Error(`网络异常：HTTP ${resp.status}`);
       if (json.error) throw new Error(`百度错误：${json.error}（${json.error_description || ''}）`);
@@ -166,13 +173,12 @@
 
       accessToken = {
         token: json.access_token,
-        expiresAt: Date.now() + ((json.expires_in || 2592000) - 3600) * 1000, // 提前 1 小时过期
+        expiresAt: Date.now() + ((json.expires_in || 2592000) - 3600) * 1000,
       };
       saveKeys(apiKey, secretKey);
       setTokenStatus('✅ Access Token：已就绪', 'ok');
       setCountdown(Math.round((accessToken.expiresAt - Date.now()) / 1000));
       toast('✅ Access Token 获取成功');
-      // 启动倒计时显示
       clearInterval(setCountdown._t);
       setCountdown._t = setInterval(() => {
         const left = Math.round((accessToken.expiresAt - Date.now()) / 1000);
@@ -185,15 +191,17 @@
       }, 60000);
     }
 
-    /* ===== 调用百度图像清晰度增强 ===== */
+    /* ===== 调用百度图像清晰度增强（经 Cloudflare Worker 代理） ===== */
     async function callImageEnhance(imgBase64) {
       if (!accessToken || Date.now() >= accessToken.expiresAt) {
         await fetchAccessToken();
       }
-      const url = 'https://aip.baidubce.com/rest/2.0/image-process/v1/image_definition_enhance/enhance';
-      const resp = await fetch(`${url}?access_token=${accessToken.token}`, {
+      const resp = await fetch('/api/baidu/rest/2.0/image-process/v1/image_definition_enhance/enhance', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'X-Baidu-Access-Token': accessToken.token,
+        },
         body: `image=${encodeURIComponent(imgBase64)}`,
       });
       const json = await resp.json().catch(() => null);
@@ -216,7 +224,7 @@
         throw new Error(errMap[json.error_code] || `百度错误 ${json.error_code}：${json.error_msg || ''}`);
       }
       if (!json.image) throw new Error('百度返回异常：缺少 image 字段');
-      return json.image; // base64 PNG
+      return json.image;
     }
 
     /* ===== 文件入口 ===== */
