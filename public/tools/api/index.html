@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>API 调试 - Web IT Tool Box</title>
+  <meta name="description" content="在线 API 接口调试工具：自定义方法、URL、请求头、查询参数与请求体，发送后展示状态码、耗时、响应头与响应体，类似 Apifox 的轻量体验。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <style>
+    /* 局部样式：仅本页使用，避免污染全局 style.css */
+    .api-row { display: flex; gap: 10px; align-items: stretch; }
+    .api-row select.method {
+      flex: 0 0 110px;
+      font-family: var(--mono);
+      font-weight: 600;
+      text-align: center;
+    }
+    .api-row input.url { flex: 1; }
+    .api-row button.send { flex: 0 0 96px; }
+    .kv-table { width: 100%; border-collapse: collapse; }
+    .kv-table th, .kv-table td {
+      padding: 6px 8px; border-bottom: 1px solid var(--border);
+      font-family: var(--mono); font-size: 13px; vertical-align: top;
+    }
+    .kv-table th { color: var(--muted); font-weight: 500; text-align: left; width: 36px; }
+    .kv-table input.kv-k, .kv-table input.kv-v {
+      width: 100%; border: 1px solid transparent; background: transparent;
+      padding: 4px 6px; font-family: var(--mono); font-size: 13px; color: inherit;
+    }
+    .kv-table input.kv-k:focus, .kv-table input.kv-v:focus {
+      outline: none; border-color: var(--accent); background: var(--card);
+    }
+    .kv-table td.del { width: 32px; text-align: center; }
+    .kv-del-btn {
+      background: transparent; border: none; color: var(--muted);
+      cursor: pointer; font-size: 16px; padding: 2px 6px; line-height: 1;
+    }
+    .kv-del-btn:hover { color: #ef4444; }
+    .add-kv-btn {
+      margin-top: 8px; background: transparent; border: 1px dashed var(--border);
+      color: var(--muted); padding: 6px 12px; border-radius: 6px;
+      font-size: 13px; cursor: pointer;
+    }
+    .add-kv-btn:hover { color: var(--accent-strong); border-color: var(--accent); }
+    .body-tabs { display: flex; gap: 4px; margin-bottom: 8px; flex-wrap: wrap; }
+    .body-tabs button {
+      padding: 6px 14px; background: transparent; border: 1px solid var(--border);
+      border-radius: 6px; cursor: pointer; color: var(--muted); font-size: 13px;
+    }
+    .body-tabs button.active {
+      background: var(--accent); color: #fff; border-color: var(--accent);
+    }
+    .resp-meta {
+      display: flex; gap: 18px; flex-wrap: wrap;
+      padding: 8px 12px; background: var(--card); border: 1px solid var(--border);
+      border-radius: 8px; font-family: var(--mono); font-size: 13px; margin-bottom: 10px;
+    }
+    .resp-meta .status-ok { color: #10b981; font-weight: 600; }
+    .resp-meta .status-err { color: #ef4444; font-weight: 600; }
+    .resp-meta .status-redir { color: #f59e0b; font-weight: 600; }
+    .resp-tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+    .resp-tabs button {
+      padding: 6px 14px; background: transparent; border: 1px solid var(--border);
+      border-radius: 6px; cursor: pointer; color: var(--muted); font-size: 13px;
+    }
+    .resp-tabs button.active {
+      background: var(--accent); color: #fff; border-color: var(--accent);
+    }
+    .resp-body {
+      max-height: 500px; overflow: auto;
+      white-space: pre-wrap; word-break: break-all;
+      font-family: var(--mono); font-size: 13px;
+      padding: 12px; background: var(--card); border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .resp-headers {
+      max-height: 300px; overflow: auto;
+      font-family: var(--mono); font-size: 12px;
+      padding: 12px; background: var(--card); border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .resp-headers .hk { color: var(--accent-strong); }
+    .resp-headers .hv { color: var(--text); }
+    .req-error { padding: 10px 12px; background: rgba(239,68,68,0.08); border: 1px solid #ef4444; border-radius: 8px; color: #b91c1c; font-family: var(--mono); font-size: 13px; }
+    .history-item {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 6px 10px; border-bottom: 1px solid var(--border);
+      font-family: var(--mono); font-size: 12px; cursor: pointer;
+    }
+    .history-item:hover { background: var(--card); }
+    .history-item .hm { color: var(--accent-strong); font-weight: 600; min-width: 56px; }
+    .history-item .hu { color: var(--muted); flex: 1; margin: 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .history-item .hs { color: var(--muted); }
+    .history-item .hs.ok { color: #10b981; }
+    .history-item .hs.err { color: #ef4444; }
+    .clear-history {
+      background: transparent; border: none; color: var(--muted);
+      cursor: pointer; font-size: 12px; padding: 4px 8px;
+    }
+    .clear-history:hover { color: #ef4444; }
+    button.send {
+      font-weight: 600; letter-spacing: 0.5px;
+    }
+    button.send:disabled { opacity: 0.6; cursor: not-allowed; }
+    .spinner {
+      display: inline-block; width: 12px; height: 12px;
+      border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff;
+      border-radius: 50%; animation: spin 0.7s linear infinite;
+      vertical-align: middle; margin-right: 4px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    details > summary { cursor: pointer; user-select: none; }
+    details > summary::-webkit-details-marker { display: none; }
+    details > summary::before {
+      content: '▸'; display: inline-block; margin-right: 6px;
+      transition: transform 0.15s; color: var(--muted);
+    }
+    details[open] > summary::before { transform: rotate(90deg); }
+    .panel-title-row {
+      display: flex; justify-content: space-between; align-items: center;
+    }
+  </style>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / API 调试</div>
+      <h1><span class="icon-tile cat-qa">📡</span>API 调试</h1>
+      <p class="sub">类似 Apifox 的轻量接口调试工具：自定义方法、URL、请求头、查询参数与请求体，一键发送并查看响应。所有请求由浏览器直接发出，不经过中转服务器。</p>
+    </div>
+
+    <!-- 请求区 -->
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>请求</div>
+
+      <div class="api-row">
+        <select id="method" class="method">
+          <option value="GET">GET</option>
+          <option value="POST">POST</option>
+          <option value="PUT">PUT</option>
+          <option value="PATCH">PATCH</option>
+          <option value="DELETE">DELETE</option>
+          <option value="HEAD">HEAD</option>
+          <option value="OPTIONS">OPTIONS</option>
+        </select>
+        <input id="url" type="text" class="url mono" placeholder="https://example.com/api/users?id=1" autocomplete="off" spellcheck="false">
+        <button id="sendBtn" class="primary send">发送</button>
+      </div>
+
+      <div id="reqError" hidden></div>
+    </section>
+
+    <!-- 查询参数 -->
+    <section class="panel">
+      <div class="panel-title-row">
+        <div class="panel-title"><span class="dot"></span>Query 参数 <span id="qsHint" style="color:var(--muted);font-weight:400;font-size:13px;margin-left:6px;"></span></div>
+        <details style="margin:0;">
+          <summary style="font-size:12px;color:var(--muted);">从 URL 解析</summary>
+        </details>
+      </div>
+      <table class="kv-table" id="qsTable">
+        <tbody></tbody>
+      </table>
+      <button class="add-kv-btn" data-target="qsTable">+ 添加参数</button>
+    </section>
+
+    <!-- 请求头 -->
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>请求头 Headers</div>
+      <table class="kv-table" id="headersTable">
+        <tbody></tbody>
+      </table>
+      <button class="add-kv-btn" data-target="headersTable">+ 添加请求头</button>
+    </section>
+
+    <!-- 请求体 -->
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>请求体 Body</div>
+      <div class="body-tabs" id="bodyTabs">
+        <button data-type="none" class="active">无</button>
+        <button data-type="json">JSON</button>
+        <button data-type="form">Form (x-www-form-urlencoded)</button>
+        <button data-type="text">Raw Text</button>
+      </div>
+      <div id="bodyJsonWrap">
+        <textarea id="bodyJson" class="json-input" style="min-height:140px;" placeholder='{"name": "value"}' spellcheck="false"></textarea>
+      </div>
+      <div id="bodyFormWrap" hidden>
+        <table class="kv-table" id="formTable"><tbody></tbody></table>
+        <button class="add-kv-btn" data-target="formTable">+ 添加字段</button>
+      </div>
+      <div id="bodyTextWrap" hidden>
+        <textarea id="bodyText" class="json-input" style="min-height:140px;" placeholder="任意文本…" spellcheck="false"></textarea>
+      </div>
+    </section>
+
+    <!-- 响应区 -->
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>响应 Response</div>
+
+      <div id="respPlaceholder" style="color:var(--muted);font-size:13px;padding:12px 0;">点击「发送」发起请求，响应会显示在这里。</div>
+
+      <div id="respArea" hidden>
+        <div class="resp-meta" id="respMeta"></div>
+        <div class="resp-tabs" id="respTabs">
+          <button data-tab="body" class="active">Body</button>
+          <button data-tab="headers">Headers</button>
+        </div>
+        <div id="respBodyBox">
+          <pre class="resp-body" id="respBody"></pre>
+        </div>
+        <div id="respHeadersBox" hidden>
+          <pre class="resp-headers" id="respHeaders"></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- 历史记录 -->
+    <section class="panel">
+      <div class="panel-title-row">
+        <div class="panel-title"><span class="dot"></span>历史记录 <span id="historyHint" style="color:var(--muted);font-weight:400;font-size:13px;margin-left:6px;"></span></div>
+        <button class="clear-history" id="clearHistoryBtn">清空</button>
+      </div>
+      <div id="historyList" style="border:1px solid var(--border);border-radius:8px;overflow:hidden;"></div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+    const $ = (id) => document.getElementById(id);
+    const methodEl = $('method'), urlEl = $('url'), sendBtn = $('sendBtn');
+    const reqErrorEl = $('reqError');
+
+    // KV 表格行模板
+    function makeKvRow(k = '', v = '', onChange) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <th><input class="kv-k" value="" placeholder="key"></th>
+        <td><input class="kv-v" value="" placeholder="value"></td>
+        <td class="del"><button class="kv-del-btn" title="删除">×</button></td>
+      `;
+      const kIn = tr.querySelector('.kv-k'), vIn = tr.querySelector('.kv-v');
+      kIn.value = k; vIn.value = v;
+      tr.querySelector('.kv-del-btn').addEventListener('click', () => {
+        tr.remove(); onChange && onChange();
+      });
+      kIn.addEventListener('input', () => onChange && onChange());
+      vIn.addEventListener('input', () => onChange && onChange());
+      return tr;
+    }
+
+    function setupKvTable(tableId, onChange) {
+      const tbody = $(tableId).querySelector('tbody');
+      // 初始两行空
+      tbody.appendChild(makeKvRow('', '', onChange));
+      tbody.appendChild(makeKvRow('', '', onChange));
+    }
+
+    function readKvTable(tableId) {
+      const rows = $(tableId).querySelectorAll('tbody tr');
+      const result = {};
+      rows.forEach(tr => {
+        const k = tr.querySelector('.kv-k').value.trim();
+        const v = tr.querySelector('.kv-v').value;
+        if (k) result[k] = v;
+      });
+      return result;
+    }
+
+    function clearKvTable(tableId) {
+      const tbody = $(tableId).querySelector('tbody');
+      tbody.innerHTML = '';
+    }
+
+    // 请求体类型切换
+    let bodyType = 'none';
+    const bodyTabs = $('bodyTabs');
+    bodyTabs.addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      bodyTabs.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      bodyType = btn.dataset.type;
+      $('bodyJsonWrap').hidden = bodyType !== 'json';
+      $('bodyFormWrap').hidden = bodyType !== 'form';
+      $('bodyTextWrap').hidden = bodyType !== 'text';
+    });
+
+    setupKvTable('qsTable');
+    setupKvTable('headersTable');
+    setupKvTable('formTable');
+
+    // + 添加按钮
+    document.querySelectorAll('.add-kv-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tbody = $(btn.dataset.target).querySelector('tbody');
+        tbody.appendChild(makeKvRow('', '', null));
+      });
+    });
+
+    // 当 URL 改变时，提示 query 参数是否与 URL 一致
+    function syncQsHint() {
+      let u;
+      try { u = new URL(urlEl.value); } catch { $('qsHint').textContent = ''; return; }
+      const qsInUrl = [...u.searchParams.keys()].length;
+      const qsInTable = Object.keys(readKvTable('qsTable')).length;
+      // 表格为空且 URL 自带参数 → 提示导入；否则不打扰用户
+      if (qsInUrl > 0 && qsInTable === 0) {
+        $('qsHint').textContent = `(URL 含 ${qsInUrl} 个参数，可点上方「从 URL 解析」导入)`;
+      } else {
+        $('qsHint').textContent = '';
+      }
+    }
+    urlEl.addEventListener('input', syncQsHint);
+
+    // 「从 URL 解析」细节展开时把 URL 的 query 灌进表格
+    document.querySelector('details').addEventListener('toggle', (e) => {
+      if (!e.target.open) return;
+      let u;
+      try { u = new URL(urlEl.value); } catch { return; }
+      clearKvTable('qsTable');
+      const tbody = $('qsTable').querySelector('tbody');
+      const entries = [...u.searchParams.entries()];
+      if (entries.length === 0) {
+        tbody.appendChild(makeKvRow('', '', null));
+      } else {
+        entries.forEach(([k, v]) => tbody.appendChild(makeKvRow(k, v, null)));
+      }
+      syncQsHint();
+    });
+
+    // 响应 tab 切换
+    $('respTabs').addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      $('respTabs').querySelectorAll('button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      $('respBodyBox').hidden = btn.dataset.tab !== 'body';
+      $('respHeadersBox').hidden = btn.dataset.tab !== 'headers';
+    });
+
+    function showReqError(msg) {
+      reqErrorEl.hidden = false;
+      reqErrorEl.className = 'req-error';
+      reqErrorEl.textContent = '❌ ' + msg;
+    }
+    function clearReqError() {
+      reqErrorEl.hidden = true;
+      reqErrorEl.textContent = '';
+    }
+
+    function buildFinalUrl() {
+      const raw = urlEl.value.trim();
+      if (!raw) throw new Error('URL 不能为空');
+      let u;
+      try { u = new URL(raw); } catch { throw new Error('URL 格式无效（需包含协议，如 https://）'); }
+      const qs = readKvTable('qsTable');
+      Object.entries(qs).forEach(([k, v]) => u.searchParams.set(k, v));
+      return u.toString();
+    }
+
+    function buildBody() {
+      if (bodyType === 'none') return undefined;
+      if (bodyType === 'json') {
+        const text = $('bodyJson').value;
+        if (!text) return undefined;
+        // 简单校验 JSON 合法性，错误时抛给上层提示
+        try { JSON.parse(text); } catch (e) { throw new Error('请求体 JSON 不合法：' + e.message); }
+        return text;
+      }
+      if (bodyType === 'form') {
+        const kv = readKvTable('formTable');
+        const params = new URLSearchParams();
+        Object.entries(kv).forEach(([k, v]) => params.append(k, v));
+        const s = params.toString();
+        return s || undefined;
+      }
+      if (bodyType === 'text') {
+        const t = $('bodyText').value;
+        return t || undefined;
+      }
+      return undefined;
+    }
+
+    function inferContentType(bodyType, explicit) {
+      if (explicit) return explicit;
+      if (bodyType === 'json') return 'application/json';
+      if (bodyType === 'form') return 'application/x-www-form-urlencoded';
+      return undefined;
+    }
+
+    // 格式化 JSON 响应体用于展示（语法高亮简化版：缩进 + 关键字高亮）
+    function formatBody(text, contentType) {
+      const ct = (contentType || '').toLowerCase();
+      if (ct.includes('json') && text) {
+        try {
+          return JSON.stringify(JSON.parse(text), null, 2);
+        } catch { /* 不是合法 JSON，原样返回 */ }
+      }
+      return text;
+    }
+
+    function statusClass(code) {
+      if (!code) return '';
+      if (code >= 200 && code < 300) return 'status-ok';
+      if (code >= 300 && code < 400) return 'status-redir';
+      return 'status-err';
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    // 渲染响应
+    function renderResponse(resp, bodyText, elapsedMs) {
+      $('respPlaceholder').hidden = true;
+      $('respArea').hidden = false;
+
+      const meta = $('respMeta');
+      meta.innerHTML = `
+        <span>状态: <span class="${statusClass(resp.status)}">${resp.status} ${escapeHtml(resp.statusText || '')}</span></span>
+        <span>耗时: ${elapsedMs} ms</span>
+        <span>大小: ${formatBytes(bodyText.length)}</span>
+        <span>类型: ${escapeHtml(resp.headers.get('content-type') || '—')}</span>
+      `;
+
+      $('respBody').textContent = formatBody(bodyText, resp.headers.get('content-type'));
+
+      // Headers
+      const hLines = [];
+      resp.headers.forEach((v, k) => {
+        hLines.push(`<span class="hk">${escapeHtml(k)}</span>: <span class="hv">${escapeHtml(v)}</span>`);
+      });
+      $('respHeaders').innerHTML = hLines.join('\n');
+    }
+
+    function formatBytes(n) {
+      if (n < 1024) return n + ' B';
+      if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+      return (n / 1024 / 1024).toFixed(2) + ' MB';
+    }
+
+    // 历史记录（localStorage）
+    const HISTORY_KEY = 'api-tool-history-v1';
+    function loadHistory() {
+      try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); }
+      catch { return []; }
+    }
+    function saveHistory(arr) {
+      try { localStorage.setItem(HISTORY_KEY, JSON.stringify(arr.slice(0, 30))); } catch {}
+    }
+    function renderHistory() {
+      const list = loadHistory();
+      const box = $('historyList');
+      $('historyHint').textContent = list.length ? `(最近 ${list.length} 条)` : '';
+      if (!list.length) {
+        box.innerHTML = '<div style="padding:14px;color:var(--muted);font-size:13px;text-align:center;">暂无历史记录</div>';
+        return;
+      }
+      box.innerHTML = list.map((h, i) => `
+        <div class="history-item" data-idx="${i}">
+          <span class="hm">${escapeHtml(h.method)}</span>
+          <span class="hu" title="${escapeHtml(h.url)}">${escapeHtml(h.url)}</span>
+          <span class="hs ${h.ok ? 'ok' : 'err'}">${h.status || 'ERR'}</span>
+        </div>
+      `).join('');
+      box.querySelectorAll('.history-item').forEach(el => {
+        el.addEventListener('click', () => {
+          const h = list[+el.dataset.idx];
+          if (!h) return;
+          methodEl.value = h.method;
+          urlEl.value = h.url;
+          // 简单回填请求头；query / body 不回填以避免误触发
+          clearKvTable('headersTable');
+          const htBody = $('headersTable').querySelector('tbody');
+          const hs = h.headers || {};
+          const keys = Object.keys(hs);
+          if (!keys.length) htBody.appendChild(makeKvRow('', '', null));
+          keys.forEach(k => htBody.appendChild(makeKvRow(k, hs[k], null)));
+          syncQsHint();
+        });
+      });
+    }
+    renderHistory();
+
+    $('clearHistoryBtn').addEventListener('click', () => {
+      if (!confirm('确定清空所有历史记录？')) return;
+      saveHistory([]);
+      renderHistory();
+    });
+
+    // 发送
+    async function doSend() {
+      clearReqError();
+      let finalUrl;
+      let body;
+      try {
+        finalUrl = buildFinalUrl();
+        body = buildBody();
+      } catch (e) {
+        showReqError(e.message);
+        return;
+      }
+
+      const headers = readKvTable('headersTable');
+      const ctKey = Object.keys(headers).find(k => k.toLowerCase() === 'content-type');
+      const ct = inferContentType(bodyType, ctKey ? headers[ctKey] : undefined);
+      if (ct && !ctKey) headers['Content-Type'] = ct;
+      // 移除空 key
+      Object.keys(headers).forEach(k => { if (!k.trim()) delete headers[k]; });
+
+      const init = {
+        method: methodEl.value,
+        headers,
+      };
+      // GET / HEAD 按规范不允许 body，若用户在请求体里写了内容则给出提示并丢弃
+      const m = methodEl.value.toUpperCase();
+      if (m === 'GET' || m === 'HEAD') {
+        if (body !== undefined) {
+          showReqError(`${m} 方法按规范不应携带请求体，已自动忽略（仍可正常发送）`);
+        }
+      } else if (body !== undefined) {
+        init.body = body;
+      }
+
+      sendBtn.disabled = true;
+      const original = sendBtn.innerHTML;
+      sendBtn.innerHTML = '<span class="spinner"></span>发送中';
+
+      const t0 = performance.now();
+      let resp, errMsg;
+      try {
+        resp = await fetch(finalUrl, init);
+      } catch (e) {
+        errMsg = e.message || String(e);
+      }
+      const elapsedMs = Math.round(performance.now() - t0);
+
+      sendBtn.disabled = false;
+      sendBtn.innerHTML = original;
+
+      if (errMsg) {
+        showReqError('网络错误：' + errMsg + '（可能是 CORS、跨域限制或目标不可达）');
+        addHistory({ method: m, url: finalUrl, headers, status: 0, ok: false });
+        return;
+      }
+
+      let bodyText = '';
+      try {
+        bodyText = await resp.text();
+      } catch (e) {
+        bodyText = '[无法读取响应体：' + (e.message || e) + ']';
+      }
+
+      renderResponse(resp, bodyText, elapsedMs);
+
+      addHistory({
+        method: m,
+        url: finalUrl,
+        headers,
+        status: resp.status,
+        ok: resp.ok,
+      });
+    }
+
+    function addHistory(entry) {
+      const list = loadHistory();
+      // 简单去重：相同 method+url+headers 视为同一条
+      const key = (e) => e.method + ' ' + e.url + ' ' + JSON.stringify(e.headers || {});
+      const filtered = list.filter(h => key(h) !== key(entry));
+      filtered.unshift({ ...entry, ts: Date.now() });
+      saveHistory(filtered);
+      renderHistory();
+    }
+
+    sendBtn.addEventListener('click', doSend);
+
+    // Ctrl+Enter 发送
+    document.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        doSend();
+      }
+    });
+
+    // 默认示例：调用 JSONPlaceholder
+    methodEl.value = 'GET';
+    urlEl.value = 'https://jsonplaceholder.typicode.com/todos/1';
+  </script>
+</body>
+</html>
