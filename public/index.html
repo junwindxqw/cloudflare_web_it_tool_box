@@ -7,6 +7,7 @@
   <meta name="description" content="基于 Cloudflare 免费服务的在线编程工具箱：时间戳转换、JSON 格式化、Base64 编解码等开发 / 设计 / 运维 / 测试常用小工具，全部本地计算，数据不上传。">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧰</text></svg>">
   <link rel="stylesheet" href="/assets/css/style.css">
+  <script src="/assets/js/common.js"></script>
 </head>
 <body>
 
@@ -31,6 +32,12 @@
       <span class="privacy-badge">🔒 全部计算在浏览器本地完成，数据不上传</span>
     </section>
 
+    <div class="search-wrap">
+      <span class="search-icon">🔍</span>
+      <input type="text" id="toolSearch" placeholder="搜索工具，如：json、时间戳、图片……" autocomplete="off" spellcheck="false" aria-label="搜索工具">
+      <span class="search-kbd">/</span>
+    </div>
+
     <div class="filter-bar" id="filterBar">
       <button class="filter-chip active" data-cat="all">全部</button>
       <button class="filter-chip" data-cat="dev">开发</button>
@@ -39,9 +46,11 @@
       <button class="filter-chip" data-cat="qa">测试</button>
     </div>
 
+    <p class="search-meta" id="searchMeta" hidden></p>
+
     <section class="tools-grid" id="toolsGrid">
 
-      <a class="tool-card clickable" href="/tools/timestamp/" data-cat="dev">
+      <a class="tool-card clickable" href="/tools/timestamp/" data-cat="dev" data-keywords="时间戳 timestamp unix 日期 时间 date time 秒 毫秒 时区 utc iso">
         <div class="card-top">
           <div class="icon-tile cat-dev">🕐</div>
           <span class="badge-live">已上线</span>
@@ -51,7 +60,7 @@
         <span class="cat-label">开发工具</span>
       </a>
 
-      <a class="tool-card clickable" href="/tools/json/" data-cat="dev">
+      <a class="tool-card clickable" href="/tools/json/" data-cat="dev" data-keywords="json 格式化 format 校验 validate 压缩 minify 高亮 parser 美化">
         <div class="card-top">
           <div class="icon-tile cat-dev">{ }</div>
           <span class="badge-live">已上线</span>
@@ -61,7 +70,7 @@
         <span class="cat-label">开发工具</span>
       </a>
 
-      <a class="tool-card clickable" href="/tools/base64/" data-cat="dev">
+      <a class="tool-card clickable" href="/tools/base64/" data-cat="dev" data-keywords="base64 编码 encode 解码 decode 编解码 utf-8 中文 url safe 安全">
         <div class="card-top">
           <div class="icon-tile cat-dev">🔐</div>
           <span class="badge-live">已上线</span>
@@ -71,7 +80,7 @@
         <span class="cat-label">开发工具</span>
       </a>
 
-      <a class="tool-card clickable" href="/tools/url/" data-cat="dev">
+      <a class="tool-card clickable" href="/tools/url/" data-cat="dev" data-keywords="url 编码 encode 解码 decode uri 转义 percent 百分号">
         <div class="card-top">
           <div class="icon-tile cat-dev">🔗</div>
           <span class="badge-live">已上线</span>
@@ -81,7 +90,7 @@
         <span class="cat-label">开发工具</span>
       </a>
 
-      <a class="tool-card clickable" href="/tools/color/" data-cat="design">
+      <a class="tool-card clickable" href="/tools/color/" data-cat="design" data-keywords="颜色 color hex rgb hsl 色值 取色 调色板 palette 转换 透明度">
         <div class="card-top">
           <div class="icon-tile cat-design">🎨</div>
           <span class="badge-live">已上线</span>
@@ -91,7 +100,7 @@
         <span class="cat-label">设计工具</span>
       </a>
 
-      <a class="tool-card clickable" href="/tools/image-convert/" data-cat="design">
+      <a class="tool-card clickable" href="/tools/image-convert/" data-cat="design" data-keywords="图片 格式转换 convert png jpeg jpg webp 转换 format 转格式">
         <div class="card-top">
           <div class="icon-tile cat-design">🔄</div>
           <span class="badge-live">已上线</span>
@@ -101,7 +110,7 @@
         <span class="cat-label">设计工具</span>
       </a>
 
-      <a class="tool-card clickable" href="/tools/image-compress/" data-cat="design">
+      <a class="tool-card clickable" href="/tools/image-compress/" data-cat="design" data-keywords="图片 压缩 compress 体积 optimize 减小 tinypng size 缩放">
         <div class="card-top">
           <div class="icon-tile cat-design">🗜️</div>
           <span class="badge-live">已上线</span>
@@ -111,7 +120,7 @@
         <span class="cat-label">设计工具</span>
       </a>
 
-      <a class="tool-card clickable" href="/tools/image-sharpen/" data-cat="design">
+      <a class="tool-card clickable" href="/tools/image-sharpen/" data-cat="design" data-keywords="图片 变清晰 锐化 sharpen 模糊 enhance 增强 滤镜 截图">
         <div class="card-top">
           <div class="icon-tile cat-design">✨</div>
           <span class="badge-live">已上线</span>
@@ -121,7 +130,7 @@
         <span class="cat-label">设计工具</span>
       </a>
 
-      <a class="tool-card clickable" href="/tools/image-upscale/" data-cat="design">
+      <a class="tool-card clickable" href="/tools/image-upscale/" data-cat="design" data-keywords="ai 图像 放大 upscale 超分 高清 修复 增强 百度 baidu 低清 模糊 4k">
         <div class="card-top">
           <div class="icon-tile cat-design">🪄</div>
           <span class="badge-live">已上线</span>
@@ -131,7 +140,7 @@
         <span class="cat-label">设计工具</span>
       </a>
 
-      <a class="tool-card clickable" href="/tools/cron/" data-cat="ops">
+      <a class="tool-card clickable" href="/tools/cron/" data-cat="ops" data-keywords="cron crontab 表达式 定时 计划任务 调度 scheduler 解析 执行时间">
         <div class="card-top">
           <div class="icon-tile cat-ops">⏰</div>
           <span class="badge-live">已上线</span>
@@ -141,7 +150,7 @@
         <span class="cat-label">运维工具</span>
       </a>
 
-      <a class="tool-card clickable" href="/tools/regex/" data-cat="qa">
+      <a class="tool-card clickable" href="/tools/regex/" data-cat="qa" data-keywords="正则 表达式 regex regexp 测试 匹配 捕获 分组 test pattern 高亮">
         <div class="card-top">
           <div class="icon-tile cat-qa">🔍</div>
           <span class="badge-live">已上线</span>
@@ -151,7 +160,7 @@
         <span class="cat-label">测试工具</span>
       </a>
 
-      <a class="tool-card clickable" href="/tools/api/" data-cat="qa">
+      <a class="tool-card clickable" href="/tools/api/" data-cat="qa" data-keywords="api 调试 http 请求 接口 rest postman apifox curl 抓包 client 响应">
         <div class="card-top">
           <div class="icon-tile cat-qa">📡</div>
           <span class="badge-live">已上线</span>
@@ -162,6 +171,13 @@
       </a>
 
     </section>
+
+    <div class="empty-state" id="emptyState" hidden>
+      <span class="es-icon">🔍</span>
+      <div class="es-main">没有找到相关工具</div>
+      <div class="es-sub">换个关键词试试，或清除当前搜索与筛选条件</div>
+      <button class="btn" id="btnResetFilter">✖ 清除搜索与筛选</button>
+    </div>
   </main>
 
   <footer class="site-footer">
@@ -171,18 +187,81 @@
   </footer>
 
   <script>
-    // 分类筛选
+    'use strict';
+
     const chips = document.querySelectorAll('#filterBar .filter-chip');
     const cards = document.querySelectorAll('#toolsGrid .tool-card');
+    const searchInput = document.getElementById('toolSearch');
+    const searchMeta = document.getElementById('searchMeta');
+    const emptyState = document.getElementById('emptyState');
+    const toolsGrid = document.getElementById('toolsGrid');
+    let activeCat = 'all';
+
+    const escapeHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    // 分类筛选 + 关键词搜索 联动
+    function applyFilter() {
+      const q = searchInput.value.trim().toLowerCase();
+      let shown = 0;
+
+      cards.forEach(card => {
+        const okCat = activeCat === 'all' || card.dataset.cat === activeCat;
+        const haystack = (card.textContent + ' ' + (card.dataset.keywords || '')).toLowerCase();
+        const okQuery = !q || haystack.includes(q);
+        const show = okCat && okQuery;
+        card.style.display = show ? '' : 'none';
+        if (show) shown++;
+      });
+
+      // 搜索结果提示
+      searchMeta.hidden = !q;
+      if (q) {
+        searchMeta.innerHTML = shown
+          ? `找到 <strong>${shown}</strong> 个与「<span class="q">${escapeHtml(q)}</span>」相关的工具`
+          : '';
+      }
+
+      // 空状态
+      toolsGrid.style.display = shown ? '' : 'none';
+      emptyState.hidden = shown !== 0;
+    }
+
     chips.forEach(chip => {
       chip.addEventListener('click', () => {
         chips.forEach(c => c.classList.remove('active'));
         chip.classList.add('active');
-        const cat = chip.dataset.cat;
-        cards.forEach(card => {
-          card.style.display = (cat === 'all' || card.dataset.cat === cat) ? '' : 'none';
-        });
+        activeCat = chip.dataset.cat;
+        applyFilter();
       });
+    });
+
+    searchInput.addEventListener('input', applyFilter);
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        searchInput.value = '';
+        applyFilter();
+        searchInput.blur();
+      }
+    });
+
+    document.getElementById('btnResetFilter').addEventListener('click', () => {
+      searchInput.value = '';
+      activeCat = 'all';
+      chips.forEach(c => c.classList.toggle('active', c.dataset.cat === 'all'));
+      applyFilter();
+      searchInput.focus();
+    });
+
+    // 快捷键：/ 或 Ctrl(Cmd) + K 聚焦搜索
+    document.addEventListener('keydown', (e) => {
+      const tag = document.activeElement && document.activeElement.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (e.key === '/' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k')) {
+        e.preventDefault();
+        searchInput.focus();
+        searchInput.select();
+      }
     });
   </script>
 </body>

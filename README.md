@@ -20,6 +20,9 @@
 - 🆓 **完全免费** — 仅使用 Cloudflare Workers 免费额度与免费静态资源托管，无任何付费依赖
 - ⚡ **极速访问** — 部署后自动接入 Cloudflare 全球 CDN 边缘网络
 - 🔒 **隐私安全** — 所有转换、格式化均在浏览器本地完成，**数据不上传服务器**
+- 🌗 **明暗主题** — 顶栏一键切换浅色 / 深色模式，默认跟随系统并自动记忆选择
+- 🔎 **搜索直达** — 主页支持按名称 / 关键词即时搜索工具（快捷键 `/` 或 `Ctrl + K`）
+- 🧭 **快捷导航** — 任意工具页可通过「全部工具」下拉菜单直接切换到其他工具
 - 📱 **响应式设计** — 桌面、平板、手机均可流畅使用
 - 🧩 **易扩展** — 新增工具只需添加一个页面 + 主页注册一个卡片，无需改后端
 - 🚀 **一键部署** — 支持一键 Fork & Deploy 到自己的 Cloudflare 账号
@@ -85,8 +88,10 @@ cloudflare_web_it_tool_box
 ├── public/                  # 静态资源根目录（Workers 托管目录）
 │   ├── index.html           # 主页 —— 功能入口（点击图标进入对应工具）
 │   ├── assets/
-│   │   ├── css/style.css    # 公共样式
-│   │   └── js/image-utils.js # 图片工具共享库
+│   │   ├── css/style.css    # 公共样式（含明暗双主题变量）
+│   │   └── js/
+│   │       ├── common.js    # 公共脚本：主题切换 + 顶栏「全部工具」导航
+│   │       └── image-utils.js # 图片工具共享库
 │   └── tools/
 │       ├── timestamp/       # 时间戳转换工具
 │       │   └── index.html
@@ -117,8 +122,8 @@ cloudflare_web_it_tool_box
 
 ## ➕ 如何新增一个工具
 
-1. 在 `public/tools/<tool-name>/` 下新建 `index.html` 工具页面；
-2. 在主页 `public/index.html` 的工具卡片列表中注册一个卡片（图标 + 名称 + 描述 + 链接）；
+1. 在 `public/tools/<tool-name>/` 下新建 `index.html` 工具页面（引入 `style.css` 与 `common.js` 即可获得主题切换与导航能力）；
+2. 在主页 `public/index.html` 的工具卡片列表中注册一个卡片（图标 + 名称 + 描述 + 关键词 + 链接），并同步到 `common.js` 的 TOOLS 清单；
 3. 提交 PR 即可。纯静态页面，无任何后端改动。
 
 ## 🗺️ Roadmap
