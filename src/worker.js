@@ -261,6 +261,78 @@ function isForbiddenHost(hostname) {
   return false;
 }
 
+// 「实际请求」回显：把代理真正发往上游的请求要素（URL/方法/头/体）经 base64(UTF-8(JSON))
+// 写入响应头 X-Actual-Request，供前端「实际请求」Tab 展示。仅随响应回传，不做任何持久化。
+const ACTUAL_REQ_HEADER = 'X-Actual-Request';
+const ACTUAL_REQ_MAX_JSON = 6000;      // JSON 字符上限（base64 后约 8KB，避免响应头过大）
+const ACTUAL_REQ_VALUE_CAP = 1600;     // 单个请求头值上限
+const ACTUAL_REQ_PREVIEW_BYTES = 1536; // 请求体预览字节数
+
+function utf8ToBase64(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
+}
+
+// 组装 body 回显信息：{ size, preview, truncated }（base64 分支传入已解码的字节）
+function buildActualBodyInfo(bodyStr, decodedBytes) {
+  if (decodedBytes) {
+    const previewLen = Math.min(decodedBytes.byteLength, ACTUAL_REQ_PREVIEW_BYTES);
+    return {
+      size: decodedBytes.byteLength,
+      preview: new TextDecoder('utf-8', { fatal: false }).decode(decodedBytes.subarray(0, previewLen)),
+      truncated: decodedBytes.byteLength > previewLen,
+    };
+  }
+  if (typeof bodyStr === 'string' && bodyStr) {
+    const previewLen = Math.min(bodyStr.length, ACTUAL_REQ_PREVIEW_BYTES);
+    return {
+      size: new TextEncoder().encode(bodyStr).length,
+      preview: bodyStr.slice(0, previewLen),
+      truncated: bodyStr.length > previewLen,
+    };
+  }
+  return undefined;
+}
+
+// 超限时逐级压缩（截头值 → 截预览 → 只留 URL/方法），保证响应头不超限
+function encodeActualRequestHeader(info) {
+  const attempts = [
+    { valueCap: ACTUAL_REQ_VALUE_CAP, previewCap: ACTUAL_REQ_PREVIEW_BYTES },
+    { valueCap: 512, previewCap: 256 },
+    { valueCap: 200, previewCap: 0 },
+  ];
+  let json = '';
+  for (const a of attempts) {
+    const headers = {};
+    for (const [k, v] of Object.entries(info.headers)) {
+      headers[k] = v.length > a.valueCap ? v.slice(0, a.valueCap) + '…' : v;
+    }
+    const body = info.body
+      ? {
+          size: info.body.size,
+          preview: info.body.preview.slice(0, a.previewCap),
+          truncated: info.body.truncated || info.body.preview.length > a.previewCap,
+        }
+      : undefined;
+    json = JSON.stringify({
+      url: info.url,
+      method: info.method,
+      headers,
+      ...(body ? { body } : {}),
+    });
+    if (json.length <= ACTUAL_REQ_MAX_JSON) break;
+  }
+  if (json.length > ACTUAL_REQ_MAX_JSON) {
+    json = JSON.stringify({ url: info.url, method: info.method, headers: {}, truncated: true });
+  }
+  return utf8ToBase64(json);
+}
+
 async function handleProxy(request) {
   // 1. 仅允许 POST
   if (request.method !== 'POST') {
@@ -319,6 +391,7 @@ async function handleProxy(request) {
   // 7. body 长度限制（GET/HEAD 不带 body）
   //    支持 text（原始字符串）/ base64（multipart、binary 文件等二进制场景）
   let body = undefined;
+  let decodedBodyBytes = null;
   let contentLengthHeader = null;
   if (m !== 'GET' && m !== 'HEAD' && upstreamBody !== undefined && upstreamBody !== null && upstreamBody !== '') {
     if (typeof upstreamBody !== 'string') {
@@ -334,6 +407,7 @@ async function handleProxy(request) {
           return jsonResponse({ error: 'body_too_large', error_description: `请求体超过 ${PROXY_MAX_BODY} 字节` }, 413, PROXY_CORS_HEADERS);
         }
         body = bytes.buffer;
+        decodedBodyBytes = bytes;
         contentLengthHeader = String(bytes.byteLength);
       } catch {
         return jsonResponse({ error: 'invalid_body_encoding', error_description: 'base64 解码失败' }, 400, PROXY_CORS_HEADERS);
@@ -348,6 +422,16 @@ async function handleProxy(request) {
   }
   // base64 模式下显式补 Content-Length，避免 chunked 编码
   if (contentLengthHeader) outHeaders['Content-Length'] = contentLengthHeader;
+
+  // 7.5 「实际请求」回显（在发起 fetch 前组装，超时/不可达的失败响应也一并带回）
+  //     重定向场景下成功响应的真实 URL 与初始 URL 可能不同，故 url 延迟到响应时确定
+  const actualInfoBase = {
+    method: m,
+    headers: outHeaders,
+    body: buildActualBodyInfo(upstreamBody, decodedBodyBytes),
+  };
+  const actualHeaderValFor = (finalUrl) =>
+    encodeActualRequestHeader({ url: finalUrl, ...actualInfoBase });
 
   // 8. 上游 fetch + 20s 超时
   const controller = new AbortController();
@@ -366,10 +450,12 @@ async function handleProxy(request) {
   } catch (e) {
     clearTimeout(timer);
     const isAbort = (e && (e.name === 'AbortError' || /abort/i.test(e.message || '')));
-    return jsonResponse({
+    const errResp = jsonResponse({
       error: isAbort ? 'upstream_timeout' : 'upstream_unreachable',
       error_description: isAbort ? `上游超时（${PROXY_UPSTREAM_TIMEOUT_MS / 1000}s）` : (e.message || '上游不可达'),
     }, isAbort ? 504 : 502, PROXY_CORS_HEADERS);
+    errResp.headers.set(ACTUAL_REQ_HEADER, actualHeaderValFor(parsed.toString()));
+    return errResp;
   }
   clearTimeout(timer);
 
@@ -381,6 +467,7 @@ async function handleProxy(request) {
     if (RESPONSE_FILTER_HEADERS.has(lk)) return;
     respHeaders[k] = v;
   });
+  respHeaders[ACTUAL_REQ_HEADER] = actualHeaderValFor(upstreamResp.url || parsed.toString());
   return new Response(buf, { status: upstreamResp.status, headers: respHeaders });
 }
 

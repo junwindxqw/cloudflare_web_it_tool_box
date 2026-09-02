@@ -83,6 +83,53 @@
     }
     .resp-headers .hk { color: var(--accent-strong); }
     .resp-headers .hv { color: var(--text); }
+    /* 「实际请求」Tab（仿 Apifox）：展示代理真正发往上游的请求要素 */
+    .actual-label { font-weight: 600; font-size: 13px; margin: 16px 0 8px; }
+    #respActualBox .actual-label:first-child { margin-top: 0; }
+    .actual-url {
+      display: flex; gap: 10px; align-items: baseline;
+      padding: 10px 12px; background: var(--card); border: 1px solid var(--border);
+      border-radius: 8px; font-family: var(--mono); font-size: 13px; word-break: break-all;
+    }
+    .actual-url .am { font-weight: 700; flex: 0 0 auto; }
+    .am.m-get, .am.m-head { color: #10b981; }
+    .am.m-post, .am.m-put, .am.m-patch { color: #f59e0b; }
+    .am.m-delete { color: #ef4444; }
+    .am.m-options { color: #8b5cf6; }
+    .actual-headers-wrap {
+      border: 1px solid var(--border); border-radius: 8px;
+      overflow: auto; max-height: 320px; background: var(--card);
+    }
+    .actual-headers { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 12px; }
+    .actual-headers th, .actual-headers td {
+      padding: 7px 10px; border-bottom: 1px solid var(--border);
+      text-align: left; vertical-align: top; word-break: break-all;
+    }
+    .actual-headers thead th { color: var(--muted); font-weight: 500; width: 200px; }
+    .actual-headers thead th + th { width: auto; }
+    .actual-headers tbody tr:last-child td { border-bottom: none; }
+    .actual-headers td.hname { white-space: nowrap; }
+    .auto-badge {
+      font-size: 10px; color: var(--muted); border: 1px solid var(--border);
+      border-radius: 4px; padding: 0 4px; margin-left: 6px; vertical-align: 1px;
+    }
+    .actual-note {
+      margin-top: 8px; font-size: 12px; color: var(--muted);
+      font-family: var(--mono); line-height: 1.7; word-break: break-all;
+    }
+    .actual-note.warn { color: #f59e0b; }
+    .actual-body-ct {
+      font-size: 11px; font-weight: 400; font-family: var(--mono); color: var(--muted);
+      border: 1px solid var(--border); padding: 1px 6px; border-radius: 4px;
+      background: var(--card); margin-left: 6px; vertical-align: 1px;
+    }
+    .actual-body {
+      margin-top: 8px; max-height: 260px; overflow: auto;
+      white-space: pre-wrap; word-break: break-all;
+      font-family: var(--mono); font-size: 13px;
+      padding: 10px 12px; background: var(--card); border: 1px solid var(--border);
+      border-radius: 8px;
+    }
     .req-error { padding: 10px 12px; background: rgba(239,68,68,0.08); border: 1px solid #ef4444; border-radius: 8px; color: #b91c1c; font-family: var(--mono); font-size: 13px; }
     .history-item {
       display: flex; justify-content: space-between; align-items: center;
@@ -207,7 +254,7 @@
     <div class="page-head">
       <div class="crumbs"><a href="/">工具箱</a> / API 调试</div>
       <h1><span class="icon-tile cat-qa">📡</span>API 调试</h1>
-      <p class="sub">类似 Apifox 的轻量接口调试工具：自定义方法、URL、请求头、查询参数与请求体，一键发送并查看响应。所有请求由浏览器直接发出，不经过中转服务器。</p>
+      <p class="sub">类似 Apifox 的轻量接口调试工具：自定义方法、URL、请求头、查询参数与请求体，一键发送并查看响应。请求经本站 Worker 代理转发以绕过浏览器 CORS 限制，发送后可在「实际请求」中查看代理真正发出的请求要素。</p>
     </div>
 
     <!-- 请求区 -->
@@ -344,12 +391,30 @@
         <div class="resp-tabs" id="respTabs">
           <button data-tab="body" class="active">Body</button>
           <button data-tab="headers">Headers</button>
+          <button data-tab="actual">实际请求</button>
         </div>
         <div id="respBodyBox">
           <pre class="resp-body" id="respBody"></pre>
         </div>
         <div id="respHeadersBox" hidden>
           <pre class="resp-headers" id="respHeaders"></pre>
+        </div>
+        <div id="respActualBox" hidden>
+          <div class="actual-label">请求 URL:</div>
+          <div class="actual-url">
+            <span class="am" id="actualMethod">GET</span>
+            <span id="actualUrlText"></span>
+          </div>
+          <div class="actual-label">Header:</div>
+          <div class="actual-headers-wrap">
+            <table class="actual-headers">
+              <thead><tr><th>名称</th><th>值</th></tr></thead>
+              <tbody id="actualHeadersBody"></tbody>
+            </table>
+          </div>
+          <div id="actualNotes"></div>
+          <div class="actual-label">Body <span class="actual-body-ct" id="actualBodyCt" hidden></span></div>
+          <pre class="actual-body" id="actualBody">(空)</pre>
         </div>
       </div>
     </section>
@@ -577,6 +642,7 @@
       btn.classList.add('active');
       $('respBodyBox').hidden = btn.dataset.tab !== 'body';
       $('respHeadersBox').hidden = btn.dataset.tab !== 'headers';
+      $('respActualBox').hidden = btn.dataset.tab !== 'actual';
     });
 
     function showReqError(msg) {
@@ -770,8 +836,84 @@
       return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
+    // ===== 「实际请求」：解码并渲染代理真正发往上游的请求要素 =====
+    // Worker 把 { url, method, headers, body } 以 base64(UTF-8(JSON)) 写入 X-Actual-Request
+    function decodeActualRequest(headers) {
+      const raw = headers.get('X-Actual-Request');
+      if (!raw) return null;
+      try {
+        const bin = atob(raw);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        return JSON.parse(new TextDecoder('utf-8').decode(bytes));
+      } catch { return null; }
+    }
+
+    function renderActualRequest(actual, userHeaders) {
+      const box = $('respActualBox');
+      if (!actual || !actual.url) {
+        $('actualUrlText').textContent = '（无实际请求数据：代理未回传）';
+        $('actualMethod').textContent = '—';
+        $('actualMethod').className = 'am';
+        $('actualHeadersBody').innerHTML = '';
+        $('actualNotes').innerHTML = '';
+        $('actualBodyCt').hidden = true;
+        $('actualBody').textContent = '(空)';
+        box.hidden = false;
+        return;
+      }
+
+      // 请求 URL（方法按 Apifox 惯例着色）
+      const method = String(actual.method || '').toUpperCase();
+      $('actualMethod').textContent = method;
+      $('actualMethod').className = 'am m-' + method.toLowerCase();
+      $('actualUrlText').textContent = actual.url;
+
+      // Header 表：Host 由运行时按 URL 自动注入，作为「自动」行补在最前
+      const sentHeaders = actual.headers || {};
+      const lowerKeys = new Set(Object.keys(sentHeaders).map(k => k.toLowerCase()));
+      const rows = [];
+      const host = (() => { try { return new URL(actual.url).host; } catch { return ''; } })();
+      if (host && !lowerKeys.has('host')) {
+        rows.push(`<tr><td class="hname">Host<span class="auto-badge">自动</span></td><td>${escapeHtml(host)}</td></tr>`);
+      }
+      Object.entries(sentHeaders).forEach(([k, v]) => {
+        rows.push(`<tr><td class="hname">${escapeHtml(k)}</td><td>${escapeHtml(v)}</td></tr>`);
+      });
+      $('actualHeadersBody').innerHTML = rows.join('') || '<tr><td colspan="2" style="color:var(--muted);">（无请求头）</td></tr>';
+
+      // 备注：被代理剥离的头 + 运行时自动注入说明
+      const notes = [];
+      const stripped = Object.keys(userHeaders || {})
+        .filter(k => k.trim() && !lowerKeys.has(k.toLowerCase()));
+      if (stripped.length) {
+        notes.push(`<div class="actual-note warn">⚠ 以下请求头未随实际请求发送（代理会剥离 hop-by-hop 头，如 Cookie / Host / Connection 等）：${escapeHtml(stripped.join('、'))}</div>`);
+      }
+      notes.push('<div class="actual-note">注：Host / Accept-Encoding / User-Agent 等连接级头由 Cloudflare fetch 运行时自动注入，上表仅列出代理显式发送的头。</div>');
+      $('actualNotes').innerHTML = notes.join('');
+
+      // Body：内容类型 chip + 预览（二进制经 base64 解码预览，可能乱码）
+      const body = actual.body;
+      const ct = Object.keys(sentHeaders).find(k => k.toLowerCase() === 'content-type');
+      if (ct) {
+        $('actualBodyCt').textContent = sentHeaders[ct];
+        $('actualBodyCt').hidden = false;
+      } else {
+        $('actualBodyCt').hidden = true;
+      }
+      if (!body) {
+        $('actualBody').textContent = '(空)';
+      } else {
+        const sizeNote = body.truncated
+          ? `…（预览已截断，完整大小 ${formatBytes(body.size)}）`
+          : `（总大小 ${formatBytes(body.size)}）`;
+        $('actualBody').textContent = (body.preview || '(空)') + '\n\n' + sizeNote;
+      }
+      box.hidden = false;
+    }
+
     // 渲染响应
-    function renderResponse(resp, bodyText, elapsedMs) {
+    function renderResponse(resp, bodyText, elapsedMs, actual, userHeaders) {
       $('respPlaceholder').hidden = true;
       $('respArea').hidden = false;
 
@@ -791,6 +933,8 @@
         hLines.push(`<span class="hk">${escapeHtml(k)}</span>: <span class="hv">${escapeHtml(v)}</span>`);
       });
       $('respHeaders').innerHTML = hLines.join('\n');
+
+      renderActualRequest(actual, userHeaders);
     }
 
     function formatBytes(n) {
@@ -957,7 +1101,7 @@
         statusText: resp.statusText,
         headers: resp.headers,
       });
-      renderResponse(fakeResp, bodyText, elapsedMs);
+      renderResponse(fakeResp, bodyText, elapsedMs, decodeActualRequest(resp.headers), headers);
 
       addHistory({
         method: m,
