@@ -15,11 +15,12 @@
 
 const ALLOWED_UPSTREAM = 'aip.baidubce.com';
 // 端点白名单：路径 + 上游 method（用 path 不带 query 匹配）
+// 关键：百度接口路径是 /image_definition_enhance（**不带** /enhance 后缀），去掉后缀才是正确的
 const ALLOWED_ENDPOINTS = {
   '/oauth/2.0/token': { method: 'POST', upstream: '/oauth/2.0/token' },
-  '/rest/2.0/image-process/v1/image_definition_enhance/enhance': {
+  '/rest/2.0/image-process/v1/image_definition_enhance': {
     method: 'POST',
-    upstream: '/rest/2.0/image-process/v1/image_definition_enhance/enhance',
+    upstream: '/rest/2.0/image-process/v1/image_definition_enhance',
   },
   '/rest/2.0/image-process/v1/image_quality_enhance': {
     method: 'POST',

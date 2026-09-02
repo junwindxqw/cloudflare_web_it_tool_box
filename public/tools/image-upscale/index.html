@@ -246,7 +246,7 @@ function setTokenStatus(text, kind = '') {
       if (!accessToken || Date.now() >= accessToken.expiresAt) {
         await fetchAccessToken();
       }
-      const resp = await fetch('/api/baidu/rest/2.0/image-process/v1/image_definition_enhance/enhance', {
+      const resp = await fetch('/api/baidu/rest/2.0/image-process/v1/image_definition_enhance', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
