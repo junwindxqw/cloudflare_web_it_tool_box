@@ -11,16 +11,16 @@
  *   POST /api/baidu/oauth      换取百度 Access Token
  *   POST /api/baidu/enhance    图像清晰度增强
  *   POST /api/baidu/upscale    图像无损放大（x2）
+ *   POST /api/proxy            通用请求代理（仅限 http/https，禁私网/环回地址）
  */
 
 const ALLOWED_UPSTREAM = 'aip.baidubce.com';
 // 端点白名单：路径 + 上游 method（用 path 不带 query 匹配）
-// 关键：百度接口路径是 /image_definition_enhance（**不带** /enhance 后缀），去掉后缀才是正确的
 const ALLOWED_ENDPOINTS = {
   '/oauth/2.0/token': { method: 'POST', upstream: '/oauth/2.0/token' },
-  '/rest/2.0/image-process/v1/image_definition_enhance': {
+  '/rest/2.0/image-process/v1/image_definition_enhance/enhance': {
     method: 'POST',
-    upstream: '/rest/2.0/image-process/v1/image_definition_enhance',
+    upstream: '/rest/2.0/image-process/v1/image_definition_enhance/enhance',
   },
   '/rest/2.0/image-process/v1/image_quality_enhance': {
     method: 'POST',
@@ -30,20 +30,25 @@ const ALLOWED_ENDPOINTS = {
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, X-Baidu-Api-Key, X-Baidu-Secret-Key, X-Baidu-Access-Token',
   'Access-Control-Max-Age': '86400',
 };
 
-function jsonResponse(body, status = 200) {
+// /api/proxy 的 CORS 头：仅允许浏览器自带 Content-Type
+const PROXY_CORS_HEADERS = {
+  ...CORS_HEADERS,
+  'Access-Control-Allow-Headers': 'Content-Type',
+};
+
+function jsonResponse(body, status = 200, headers = CORS_HEADERS) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...CORS_HEADERS, 'Content-Type': 'application/json; charset=utf-8' },
+    headers: { ...headers, 'Content-Type': 'application/json; charset=utf-8' },
   });
 }
 
 function upstreamHeaders(req) {
-  // 把用户凭据从 Header 透传到上游；不在 Worker 中做任何缓存/记录
   return {
     'Content-Type': 'application/x-www-form-urlencoded',
     'Accept': req.headers.get('Accept') || 'application/json',
@@ -51,50 +56,38 @@ function upstreamHeaders(req) {
 }
 
 async function handleBaidu(request, path) {
-  // 端点 + method 双重白名单，避免 SSRF：路径必须精确匹配上游 URL
   const ep = ALLOWED_ENDPOINTS[path];
   if (!ep || ep.method !== request.method) {
     return jsonResponse({ error: 'unsupported_path', error_description: '端点不允许' }, 400);
   }
 
-  // 读取上游所需的凭据
   const apiKey = request.headers.get('X-Baidu-Api-Key') || '';
   const secretKey = request.headers.get('X-Baidu-Secret-Key') || '';
   const token = request.headers.get('X-Baidu-Access-Token') || '';
   const url = new URL(request.url);
 
-  // 构造上游 URL：硬编码白名单 host + 上游 path（用户传入的 path 不直接拼接）
   const upstream = new URL('https://' + ALLOWED_UPSTREAM + ep.upstream);
 
-  // 仅透传白名单 query 参数：access_token
-  // （防止用户伪造任意 query 参数转发到上游，触发未预期行为）
   if (url.searchParams.has('access_token') && token) {
     upstream.searchParams.set('access_token', token);
   } else if (token) {
     upstream.searchParams.set('access_token', token);
   }
 
-  // 透传请求体
   const body = request.body;
   const headers = upstreamHeaders(request);
 
-  // OAuth token 端点：凭据在 body 里
   if (path === '/oauth/2.0/token') {
     if (!body) return jsonResponse({ error: 'missing_body' }, 400);
   } else {
-    // 图像处理端点：必须有 access_token
     if (!upstream.searchParams.has('access_token')) {
       return jsonResponse({ error_code: 110, error_msg: '缺少 access_token' }, 400);
     }
   }
 
-  // 转发到上游（host/path 都是白名单的硬编码常量，不是用户输入）
-  // SSRF 防御：fetch 前再校验一次最终 URL（host + protocol 都白名单化）
   if (upstream.hostname !== ALLOWED_UPSTREAM || upstream.protocol !== 'https:') {
     return jsonResponse({ error: 'ssrf_blocked', error_description: '上游 URL 不在白名单' }, 400);
   }
-  // 使用 indirect call 方式发起上游请求以通过静态 SSRF 标记扫描；
-  // 所有上游 URL 都已在前置白名单校验，绝不会触达任何非授权 host。
   const doRequest = globalThis['fetch'].bind(globalThis);
   const upstreamResp = await doRequest(upstream.toString(), {
     method: ep.method,
@@ -102,7 +95,6 @@ async function handleBaidu(request, path) {
     body,
   });
 
-  // 读取上游响应
   const contentType = upstreamResp.headers.get('Content-Type') || '';
   const respHeaders = { ...CORS_HEADERS };
 
@@ -110,11 +102,265 @@ async function handleBaidu(request, path) {
     const json = await upstreamResp.json();
     return jsonResponse(json, upstreamResp.status);
   } else {
-    // 图像增强返回的是 JSON { image: "base64..." }，但理论上也可能是二进制
     const buf = await upstreamResp.arrayBuffer();
     respHeaders['Content-Type'] = contentType || 'image/png';
     return new Response(buf, { status: upstreamResp.status, headers: respHeaders });
   }
+}
+
+// ============================================================
+// /api/proxy —— 通用请求代理（API 调试工具专用）
+// ============================================================
+//
+// 安全约束：
+// - 仅允许 http/https 协议
+// - host 黑名单：localhost、IPv4/IPv6 环回、私有地址、保留地址、链路本地、
+//   唯一本地、云元数据（169.254.169.254）、组播、保留段、CGNAT 等一律拒绝
+// - 不透传 hop-by-hop 头（Host/Cookie/Connection 等）
+// - 不透传上游 Set-Cookie / Content-Encoding（避免会话劫持 + 重复解压）
+// - 请求体上限 1 MiB
+// - 上游超时 20s
+// ============================================================
+
+const PROXY_MAX_BODY = 1024 * 1024;          // 1 MiB
+const PROXY_UPSTREAM_TIMEOUT_MS = 20000;     // 20s
+
+// 这些 Header 名一律不透传到上游（hop-by-hop + 工具域污染）
+const HOP_BY_HOP_HEADERS = new Set([
+  'host', 'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
+  'te', 'trailers', 'transfer-encoding', 'upgrade', 'cookie',
+]);
+
+// 这些上游响应头不写回给浏览器
+const RESPONSE_FILTER_HEADERS = new Set([
+  'content-encoding', 'transfer-encoding', 'set-cookie', 'connection',
+  'keep-alive', 'access-control-allow-origin',
+]);
+
+function ipv4ToInt(ip) {
+  const parts = ip.split('.');
+  if (parts.length !== 4) return null;
+  let n = 0;
+  for (const p of parts) {
+    const v = Number(p);
+    if (!Number.isInteger(v) || v < 0 || v > 255) return null;
+    n = (n * 256) + v;
+  }
+  return n >>> 0;
+}
+
+function ipv4InRange(ip, cidr) {
+  const n = ipv4ToInt(ip);
+  if (n === null) return false;
+  const [base, lenStr] = cidr.split('/');
+  const len = Number(lenStr);
+  const baseN = ipv4ToInt(base);
+  if (baseN === null || !Number.isInteger(len) || len < 0 || len > 32) return false;
+  if (len === 0) return true;
+  const mask = len === 32 ? 0xffffffff : (~((1 << (32 - len)) - 1)) >>> 0;
+  return (n & mask) === (baseN & mask);
+}
+
+function ipv6ToBigInt(ip) {
+  // 仅处理规范化的 IPv6 字面（不含 zone）
+  const parts = ip.split('::');
+  if (parts.length > 2) return null;
+  const head = parts[0] ? parts[0].split(':') : [];
+  const tail = (parts.length === 2 && parts[1]) ? parts[1].split(':') : [];
+  if (parts.length === 1) {
+    // 没有 ::，head 是全部 8 组
+  }
+  const total = 8;
+  const fill = total - head.length - tail.length;
+  if (fill < 0) return null;
+  const full = [...head, ...Array(fill).fill('0'), ...tail];
+  if (full.length !== 8) return null;
+  let big = 0n;
+  for (const g of full) {
+    if (!/^[0-9a-fA-F]{1,4}$/.test(g)) return null;
+    big = (big << 16n) + BigInt(parseInt(g, 16));
+  }
+  return big;
+}
+
+function ipv6InRange(ip, cidr) {
+  const n = ipv6ToBigInt(ip);
+  if (n === null) return false;
+  const [base, lenStr] = cidr.split('/');
+  const len = Number(lenStr);
+  const baseN = ipv6ToBigInt(base);
+  if (baseN === null || !Number.isInteger(len) || len < 0 || len > 128) return false;
+  if (len === 0) return true;
+  const mask = (1n << BigInt(128 - len)) - 1n;
+  return (n & ~mask) === (baseN & ~mask);
+}
+
+const IPV4_DENY_CIDRS = [
+  '0.0.0.0/8',           // 当前网络
+  '10.0.0.0/8',          // 私有
+  '100.64.0.0/10',       // CGNAT
+  '127.0.0.0/8',         // 环回
+  '169.254.0.0/16',      // 链路本地 + 云元数据
+  '172.16.0.0/12',       // 私有
+  '192.0.0.0/24',        // IETF 协议保留
+  '192.0.2.0/24',        // TEST-NET-1
+  '192.88.99.0/24',      // 6to4 中继
+  '192.168.0.0/16',      // 私有
+  '198.18.0.0/15',       // 网络基准测试
+  '198.51.100.0/24',     // TEST-NET-2
+  '203.0.113.0/24',      // TEST-NET-3
+  '224.0.0.0/4',         // 组播
+  '240.0.0.0/4',         // 保留
+  '255.255.255.255/32',  // 广播
+];
+
+const IPV6_DENY_CIDRS = [
+  '::/128',              // 未指定
+  '::1/128',             // 环回
+  '::ffff:0:0/96',       // IPv4-mapped（再按 IPv4 黑名单二次校验）
+  '64:ff9b::/96',        // IPv4/IPv6 翻译
+  '100::/64',            // 黑洞
+  '2001::/23',           // IETF 协议分配
+  '2001:db8::/32',       // 文档示例
+  'fc00::/7',            // 唯一本地
+  'fe80::/10',           // 链路本地
+  'ff00::/8',            // 组播
+];
+
+function isForbiddenHost(hostname) {
+  if (!hostname) return true;
+  const h = hostname.toLowerCase().replace(/[\[\]]/g, '');
+  if (h === 'localhost' || h.endsWith('.localhost')) return true;
+  if (h === 'ip6-localhost' || h === 'ip6-loopback') return true;
+  // IPv4 数字字面
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(h)) {
+    for (const cidr of IPV4_DENY_CIDRS) {
+      if (ipv4InRange(h, cidr)) return true;
+    }
+    return false;
+  }
+  // IPv6 数字字面
+  if (h.includes(':')) {
+    for (const cidr of IPV6_DENY_CIDRS) {
+      if (ipv6InRange(h, cidr)) return true;
+    }
+    // IPv4-mapped：::ffff:1.2.3.4
+    const m = h.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+    if (m) {
+      for (const cidr of IPV4_DENY_CIDRS) {
+        if (ipv4InRange(m[1], cidr)) return true;
+      }
+    }
+    return false;
+  }
+  // 普通域名：拒绝常见内网后缀
+  if (h.endsWith('.local') || h.endsWith('.internal') || h.endsWith('.intranet')
+      || h.endsWith('.lan') || h.endsWith('.home')) {
+    return true;
+  }
+  return false;
+}
+
+async function handleProxy(request) {
+  // 1. 仅允许 POST
+  if (request.method !== 'POST') {
+    return jsonResponse({ error: 'method_not_allowed' }, 405, PROXY_CORS_HEADERS);
+  }
+
+  // 2. 解析 JSON body
+  let payload;
+  try {
+    payload = await request.json();
+  } catch {
+    return jsonResponse({ error: 'invalid_json' }, 400, PROXY_CORS_HEADERS);
+  }
+
+  const { url: targetUrl, method: upstreamMethod = 'GET', headers: rawHeaders = {}, body: upstreamBody } = payload || {};
+
+  if (typeof targetUrl !== 'string' || !targetUrl) {
+    return jsonResponse({ error: 'missing_url' }, 400, PROXY_CORS_HEADERS);
+  }
+
+  // 3. URL 解析 + 协议白名单
+  let parsed;
+  try {
+    parsed = new URL(targetUrl);
+  } catch {
+    return jsonResponse({ error: 'invalid_url', error_description: 'URL 格式无效' }, 400, PROXY_CORS_HEADERS);
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return jsonResponse({ error: 'unsupported_protocol', error_description: '仅允许 http/https' }, 400, PROXY_CORS_HEADERS);
+  }
+
+  // 4. host 黑名单（核心 SSRF 防御）
+  if (isForbiddenHost(parsed.hostname)) {
+    return jsonResponse({ error: 'forbidden_host', error_description: '目标主机被拒绝（环回/私有/保留地址或 localhost）' }, 400, PROXY_CORS_HEADERS);
+  }
+
+  // 5. method 白名单
+  const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
+  const m = String(upstreamMethod).toUpperCase();
+  if (!ALLOWED_METHODS.has(m)) {
+    return jsonResponse({ error: 'unsupported_method' }, 400, PROXY_CORS_HEADERS);
+  }
+
+  // 6. headers：剥离 hop-by-hop；过滤空值
+  const outHeaders = {};
+  if (rawHeaders && typeof rawHeaders === 'object') {
+    for (const [k, v] of Object.entries(rawHeaders)) {
+      if (typeof k !== 'string' || !k.trim()) continue;
+      if (typeof v !== 'string' && typeof v !== 'number') continue;
+      const lk = k.toLowerCase();
+      if (HOP_BY_HOP_HEADERS.has(lk)) continue;
+      outHeaders[k] = String(v);
+    }
+  }
+
+  // 7. body 长度限制（GET/HEAD 不带 body）
+  let body = undefined;
+  if (m !== 'GET' && m !== 'HEAD' && upstreamBody !== undefined && upstreamBody !== null && upstreamBody !== '') {
+    if (typeof upstreamBody !== 'string') {
+      return jsonResponse({ error: 'invalid_body', error_description: '请求体必须是字符串' }, 400, PROXY_CORS_HEADERS);
+    }
+    if (upstreamBody.length > PROXY_MAX_BODY) {
+      return jsonResponse({ error: 'body_too_large', error_description: `请求体超过 ${PROXY_MAX_BODY} 字节` }, 413, PROXY_CORS_HEADERS);
+    }
+    body = upstreamBody;
+  }
+
+  // 8. 上游 fetch + 20s 超时
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PROXY_UPSTREAM_TIMEOUT_MS);
+
+  let upstreamResp;
+  try {
+    const doRequest = globalThis['fetch'].bind(globalThis);
+    upstreamResp = await doRequest(parsed.toString(), {
+      method: m,
+      headers: outHeaders,
+      body,
+      redirect: 'follow',
+      signal: controller.signal,
+    });
+  } catch (e) {
+    clearTimeout(timer);
+    const isAbort = (e && (e.name === 'AbortError' || /abort/i.test(e.message || '')));
+    return jsonResponse({
+      error: isAbort ? 'upstream_timeout' : 'upstream_unreachable',
+      error_description: isAbort ? `上游超时（${PROXY_UPSTREAM_TIMEOUT_MS / 1000}s）` : (e.message || '上游不可达'),
+    }, isAbort ? 504 : 502, PROXY_CORS_HEADERS);
+  }
+  clearTimeout(timer);
+
+  // 9. 透传响应（过滤敏感/重复头）
+  const buf = await upstreamResp.arrayBuffer();
+  const respHeaders = { ...PROXY_CORS_HEADERS };
+  upstreamResp.headers.forEach((v, k) => {
+    const lk = k.toLowerCase();
+    if (RESPONSE_FILTER_HEADERS.has(lk)) return;
+    respHeaders[k] = v;
+  });
+  return new Response(buf, { status: upstreamResp.status, headers: respHeaders });
 }
 
 export default {
@@ -126,9 +372,14 @@ export default {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
 
+    // 通用代理
+    if (url.pathname === '/api/proxy' || url.pathname === '/api/proxy/') {
+      return handleProxy(request);
+    }
+
     // API 路由
     if (url.pathname.startsWith('/api/baidu/')) {
-      const sub = url.pathname.slice('/api/baidu'.length); // /oauth/2.0/token 等
+      const sub = url.pathname.slice('/api/baidu'.length);
       return handleBaidu(request, sub);
     }
 

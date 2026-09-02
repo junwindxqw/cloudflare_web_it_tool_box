@@ -512,6 +512,21 @@
       renderHistory();
     });
 
+    // 错误码 → 中文提示
+    const PROXY_ERROR_MSG = {
+      forbidden_host: '目标被代理拦截（环回/私有/保留地址或 localhost）',
+      unsupported_protocol: '协议不被允许（仅支持 http/https）',
+      invalid_url: 'URL 格式无效',
+      invalid_json: '代理请求体不是合法 JSON',
+      missing_url: '缺少 URL',
+      body_too_large: '请求体过大（上限 1 MiB）',
+      upstream_timeout: '上游超时（20s）',
+      upstream_unreachable: '上游不可达',
+      invalid_body: '请求体格式无效',
+      unsupported_method: '方法不被允许',
+      method_not_allowed: '仅支持 POST 调用 /api/proxy',
+    };
+
     // 发送
     async function doSend() {
       clearReqError();
@@ -532,18 +547,14 @@
       // 移除空 key
       Object.keys(headers).forEach(k => { if (!k.trim()) delete headers[k]; });
 
-      const init = {
-        method: methodEl.value,
-        headers,
-      };
-      // GET / HEAD 按规范不允许 body，若用户在请求体里写了内容则给出提示并丢弃
       const m = methodEl.value.toUpperCase();
+      // GET / HEAD 按规范不允许 body
       if (m === 'GET' || m === 'HEAD') {
         if (body !== undefined) {
           showReqError(`${m} 方法按规范不应携带请求体，已自动忽略（仍可正常发送）`);
         }
-      } else if (body !== undefined) {
-        init.body = body;
+      } else if (body === undefined) {
+        // 正常
       }
 
       sendBtn.disabled = true;
@@ -551,23 +562,37 @@
       sendBtn.innerHTML = '<span class="spinner"></span>发送中';
 
       const t0 = performance.now();
+
+      // 所有请求统一经 Worker 代理，避免浏览器 CORS 拦截跨域站点
+      // （同源也走代理，保持体验一致；Worker 在边缘网络，延迟可忽略）
       let resp, errMsg;
       try {
-        resp = await fetch(finalUrl, init);
+        resp = await fetch('/api/proxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            url: finalUrl,
+            method: m,
+            headers,
+            body: (m === 'GET' || m === 'HEAD') ? undefined : body,
+          }),
+        });
       } catch (e) {
-        errMsg = e.message || String(e);
+        errMsg = '网络错误：' + (e.message || String(e));
       }
       const elapsedMs = Math.round(performance.now() - t0);
 
       sendBtn.disabled = false;
       sendBtn.innerHTML = original;
 
+      // 1. 浏览器层网络错误（极少，因为代理与前端同源）
       if (errMsg) {
-        showReqError('网络错误：' + errMsg + '（可能是 CORS、跨域限制或目标不可达）');
+        showReqError(errMsg);
         addHistory({ method: m, url: finalUrl, headers, status: 0, ok: false });
         return;
       }
 
+      // 2. 读取响应体（统一为字符串，便于 JSON 校验与渲染）
       let bodyText = '';
       try {
         bodyText = await resp.text();
@@ -575,7 +600,26 @@
         bodyText = '[无法读取响应体：' + (e.message || e) + ']';
       }
 
-      renderResponse(resp, bodyText, elapsedMs);
+      // 3. Worker 返回的 JSON 错误（如 forbidden_host）→ 友好提示
+      const ctHeader = resp.headers.get('content-type') || '';
+      if (resp.status >= 400 && ctHeader.includes('application/json')) {
+        try {
+          const errObj = JSON.parse(bodyText);
+          const code = errObj.error || ('http_' + resp.status);
+          const msg = PROXY_ERROR_MSG[code] || errObj.error_description || code;
+          showReqError(`代理拦截（${resp.status}）：${msg}`);
+          addHistory({ method: m, url: finalUrl, headers, status: resp.status, ok: false });
+          return;
+        } catch { /* fallthrough 到正常渲染 */ }
+      }
+
+      // 4. 包装为带 headers 的对象，复用 renderResponse
+      const fakeResp = new Response(bodyText, {
+        status: resp.status,
+        statusText: resp.statusText,
+        headers: resp.headers,
+      });
+      renderResponse(fakeResp, bodyText, elapsedMs);
 
       addHistory({
         method: m,
@@ -606,9 +650,9 @@
       }
     });
 
-    // 默认示例：调用 JSONPlaceholder
+    // 默认示例：百度首页（验证跨域也能调通）
     methodEl.value = 'GET';
-    urlEl.value = 'https://jsonplaceholder.typicode.com/todos/1';
+    urlEl.value = 'https://www.baidu.com/';
   </script>
 </body>
 </html>
