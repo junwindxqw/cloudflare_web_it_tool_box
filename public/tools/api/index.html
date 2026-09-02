@@ -120,6 +120,33 @@
     .panel-title-row {
       display: flex; justify-content: space-between; align-items: center;
     }
+    .fd-type-toggle {
+      display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; flex: 0 0 auto;
+    }
+    .fd-type-toggle button {
+      background: transparent; border: none; color: var(--muted);
+      padding: 4px 10px; cursor: pointer; font-size: 12px; font-family: var(--mono);
+    }
+    .fd-type-toggle button.on {
+      background: var(--accent); color: #fff;
+    }
+    .fd-file-cell {
+      display: flex; align-items: center; gap: 6px; min-height: 28px;
+    }
+    .fd-file-cell .filename {
+      font-family: var(--mono); font-size: 13px;
+      color: var(--accent-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      flex: 1; min-width: 0;
+    }
+    .fd-file-cell .filesize { color: var(--muted); font-size: 11px; }
+    .fd-file-cell input[type=file] { display: none; }
+    .fd-file-cell .fd-pick-btn {
+      padding: 3px 8px; font-size: 12px;
+      border: 1px solid var(--border); border-radius: 4px;
+      background: transparent; color: var(--muted); cursor: pointer; flex: 0 0 auto;
+    }
+    .fd-file-cell .fd-pick-btn:hover { color: var(--accent-strong); border-color: var(--accent); }
+    .kv-table td.fd-type { width: 70px; text-align: center; padding: 0 4px; }
   </style>
 </head>
 <body>
@@ -191,20 +218,68 @@
     <section class="panel">
       <div class="panel-title"><span class="dot"></span>请求体 Body</div>
       <div class="body-tabs" id="bodyTabs">
-        <button data-type="none" class="active">无</button>
+        <button data-type="none" class="active">none</button>
+        <button data-type="form-data">form-data</button>
+        <button data-type="x-www-form-urlencoded">x-www-form-urlencoded</button>
         <button data-type="json">JSON</button>
-        <button data-type="form">Form (x-www-form-urlencoded)</button>
-        <button data-type="text">Raw Text</button>
+        <button data-type="xml">XML</button>
+        <button data-type="text">Text</button>
+        <button data-type="binary">Binary</button>
+        <button data-type="graphql">GraphQL</button>
       </div>
-      <div id="bodyJsonWrap">
-        <textarea id="bodyJson" class="json-input" style="min-height:140px;" placeholder='{"name": "value"}' spellcheck="false"></textarea>
+
+      <!-- form-data：每行可切 Text/File -->
+      <div id="bodyFormDataWrap" hidden>
+        <table class="kv-table" id="formDataTable"><tbody></tbody></table>
+        <button class="add-kv-btn" data-target="formDataTable">+ 添加字段</button>
       </div>
+
+      <!-- x-www-form-urlencoded -->
       <div id="bodyFormWrap" hidden>
         <table class="kv-table" id="formTable"><tbody></tbody></table>
         <button class="add-kv-btn" data-target="formTable">+ 添加字段</button>
       </div>
+
+      <!-- JSON -->
+      <div id="bodyJsonWrap" hidden>
+        <textarea id="bodyJson" class="json-input" style="min-height:140px;" placeholder='{"name": "value"}' spellcheck="false"></textarea>
+      </div>
+
+      <!-- XML -->
+      <div id="bodyXmlWrap" hidden>
+        <textarea id="bodyXml" class="json-input" style="min-height:140px;" placeholder='&lt;root&gt;&lt;item&gt;value&lt;/item&gt;&lt;/root&gt;' spellcheck="false"></textarea>
+      </div>
+
+      <!-- Text -->
       <div id="bodyTextWrap" hidden>
         <textarea id="bodyText" class="json-input" style="min-height:140px;" placeholder="任意文本…" spellcheck="false"></textarea>
+      </div>
+
+      <!-- Binary：单文件 -->
+      <div id="bodyBinaryWrap" hidden>
+        <div style="display:flex; gap:10px; align-items:center;">
+          <input type="file" id="binaryFile" style="flex:1;">
+          <button class="add-kv-btn" type="button" id="binaryClearBtn" style="margin-top:0; flex:0 0 auto;">清空</button>
+        </div>
+        <div id="binaryInfo" style="margin-top:8px; color:var(--muted); font-size:12px; font-family:var(--mono);"></div>
+      </div>
+
+      <!-- GraphQL：query + variables(JSON) + operationName -->
+      <div id="bodyGraphqlWrap" hidden>
+        <div style="display:flex; flex-direction:column; gap:10px;">
+          <div>
+            <label style="display:block; font-size:12px; color:var(--muted); margin-bottom:4px;">Query <span style="color:#ef4444;">*</span></label>
+            <textarea id="gqlQuery" class="json-input" style="min-height:120px;" placeholder="query GetUser($id: ID!) { user(id: $id) { name } }" spellcheck="false"></textarea>
+          </div>
+          <div>
+            <label style="display:block; font-size:12px; color:var(--muted); margin-bottom:4px;">Variables (JSON)</label>
+            <textarea id="gqlVariables" class="json-input" style="min-height:80px;" placeholder='{"id": "1"}' spellcheck="false"></textarea>
+          </div>
+          <div>
+            <label style="display:block; font-size:12px; color:var(--muted); margin-bottom:4px;">Operation Name</label>
+            <input type="text" id="gqlOpName" class="mono" style="width:100%; padding:8px; background:transparent; border:1px solid var(--border); border-radius:6px; color:inherit; font-family:var(--mono);" placeholder="GetUser" spellcheck="false">
+          </div>
+        </div>
       </div>
     </section>
 
@@ -255,20 +330,78 @@
     const reqErrorEl = $('reqError');
 
     // KV 表格行模板
-    function makeKvRow(k = '', v = '', onChange) {
+    // opts.kind: 'plain' | 'form-data'（form-data 支持行内 Text/File 切换与文件选择）
+    function makeKvRow(k = '', v = '', onChange, opts = {}) {
       const tr = document.createElement('tr');
+      const kind = opts.kind || 'plain';
+      const typeCell = kind === 'form-data'
+        ? `<td class="fd-type"><div class="fd-type-toggle">
+              <button class="fd-type-text on" type="button" data-type="text">Text</button>
+              <button class="fd-type-file" type="button" data-type="file">File</button>
+           </div></td>`
+        : '';
       tr.innerHTML = `
         <th><input class="kv-k" value="" placeholder="key"></th>
-        <td><input class="kv-v" value="" placeholder="value"></td>
+        <td class="fd-val-cell">${kind === 'form-data'
+          ? `<div class="fd-val-text"><input class="kv-v" value="" placeholder="value"></div>
+             <div class="fd-val-file" hidden>
+               <div class="fd-file-cell">
+                 <span class="filename">未选择文件</span>
+                 <span class="filesize"></span>
+                 <button class="fd-pick-btn" type="button">选择</button>
+                 <input type="file" class="fd-real-file">
+               </div>
+             </div>`
+          : `<input class="kv-v" value="" placeholder="value">`}</td>
+        ${typeCell}
         <td class="del"><button class="kv-del-btn" title="删除">×</button></td>
       `;
-      const kIn = tr.querySelector('.kv-k'), vIn = tr.querySelector('.kv-v');
-      kIn.value = k; vIn.value = v;
+      const kIn = tr.querySelector('.kv-k');
+      const vIn = tr.querySelector('.kv-v');
+      kIn.value = k;
+      if (vIn) vIn.value = v;
       tr.querySelector('.kv-del-btn').addEventListener('click', () => {
         tr.remove(); onChange && onChange();
       });
       kIn.addEventListener('input', () => onChange && onChange());
-      vIn.addEventListener('input', () => onChange && onChange());
+      if (vIn) vIn.addEventListener('input', () => onChange && onChange());
+
+      // form-data 行级 Text/File 切换
+      if (kind === 'form-data') {
+        let fdType = 'text';
+        let fdFile = null; // File 对象
+        const textWrap = tr.querySelector('.fd-val-text');
+        const fileWrap = tr.querySelector('.fd-val-file');
+        const filenameEl = tr.querySelector('.filename');
+        const filesizeEl = tr.querySelector('.filesize');
+        const fileInput = tr.querySelector('.fd-real-file');
+        const pickBtn = tr.querySelector('.fd-pick-btn');
+        const btnText = tr.querySelector('.fd-type-text');
+        const btnFile = tr.querySelector('.fd-type-file');
+
+        const setType = (t) => {
+          fdType = t;
+          btnText.classList.toggle('on', t === 'text');
+          btnFile.classList.toggle('on', t === 'file');
+          textWrap.hidden = t !== 'text';
+          fileWrap.hidden = t !== 'file';
+          onChange && onChange();
+        };
+        btnText.addEventListener('click', () => setType('text'));
+        btnFile.addEventListener('click', () => setType('file'));
+        pickBtn.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', () => {
+          const f = fileInput.files && fileInput.files[0];
+          if (f) {
+            fdFile = f;
+            filenameEl.textContent = f.name;
+            filesizeEl.textContent = formatBytes(f.size);
+          }
+          onChange && onChange();
+        });
+
+        tr._fdGet = () => ({ type: fdType, file: fdFile });
+      }
       return tr;
     }
 
@@ -297,6 +430,21 @@
 
     // 请求体类型切换
     let bodyType = 'none';
+    const BODY_WRAP_IDS = {
+      'none': null,
+      'form-data': 'bodyFormDataWrap',
+      'x-www-form-urlencoded': 'bodyFormWrap',
+      'json': 'bodyJsonWrap',
+      'xml': 'bodyXmlWrap',
+      'text': 'bodyTextWrap',
+      'binary': 'bodyBinaryWrap',
+      'graphql': 'bodyGraphqlWrap',
+    };
+    function switchBodyWrap(t) {
+      Object.entries(BODY_WRAP_IDS).forEach(([k, id]) => {
+        if (id) $(id).hidden = (k !== t);
+      });
+    }
     const bodyTabs = $('bodyTabs');
     bodyTabs.addEventListener('click', (e) => {
       const btn = e.target.closest('button');
@@ -304,20 +452,25 @@
       bodyTabs.querySelectorAll('button').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       bodyType = btn.dataset.type;
-      $('bodyJsonWrap').hidden = bodyType !== 'json';
-      $('bodyFormWrap').hidden = bodyType !== 'form';
-      $('bodyTextWrap').hidden = bodyType !== 'text';
+      switchBodyWrap(bodyType);
     });
 
     setupKvTable('qsTable');
     setupKvTable('headersTable');
     setupKvTable('formTable');
+    // form-data 表特殊：行级支持 Text/File
+    {
+      const tbody = $('formDataTable').querySelector('tbody');
+      tbody.appendChild(makeKvRow('', '', null, { kind: 'form-data' }));
+      tbody.appendChild(makeKvRow('', '', null, { kind: 'form-data' }));
+    }
 
     // + 添加按钮
     document.querySelectorAll('.add-kv-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const tbody = $(btn.dataset.target).querySelector('tbody');
-        tbody.appendChild(makeKvRow('', '', null));
+        const kind = btn.dataset.target === 'formDataTable' ? 'form-data' : 'plain';
+        tbody.appendChild(makeKvRow('', '', null, { kind }));
       });
     });
 
@@ -382,25 +535,139 @@
       return u.toString();
     }
 
+    // 组装 form-data：返回 { body: base64, encoding: 'base64', contentType: 'multipart/form-data; boundary=...' }
+    async function buildFormData() {
+      const rows = $('formDataTable').querySelectorAll('tbody tr');
+      const parts = [];
+      let hasAny = false;
+      let hasFile = false;
+      for (const tr of rows) {
+        const k = tr.querySelector('.kv-k').value.trim();
+        if (!k) continue;
+        const meta = tr._fdGet ? tr._fdGet() : { type: 'text', file: null };
+        if (meta.type === 'file' && meta.file) {
+          parts.push({ kind: 'file', name: k, file: meta.file });
+          hasAny = true; hasFile = true;
+        } else if (meta.type === 'file') {
+          // File 类型但没选文件：跳过该行
+          continue;
+        } else {
+          const v = tr.querySelector('.kv-v').value;
+          if (v === '' && !k) continue;
+          parts.push({ kind: 'text', name: k, value: v });
+          hasAny = true;
+        }
+      }
+      if (!hasAny) return undefined;
+      // 必须用文件读取才能生成 base64；如果只有文本字段，直接走 form-urlencoded 更高效，
+      // 但用户既然选 form-data 就保持 multipart
+      const boundary = '----WIB' + Math.random().toString(36).slice(2, 12);
+      const enc = new TextEncoder();
+      const chunks = [];
+      for (const p of parts) {
+        chunks.push(enc.encode(`--${boundary}\r\n`));
+        if (p.kind === 'file') {
+          chunks.push(enc.encode(
+            `Content-Disposition: form-data; name="${escapeName(p.name)}"; filename="${escapeName(p.file.name)}"\r\n` +
+            `Content-Type: ${p.file.type || 'application/octet-stream'}\r\n\r\n`
+          ));
+          chunks.push(new Uint8Array(await p.file.arrayBuffer()));
+          chunks.push(enc.encode('\r\n'));
+        } else {
+          chunks.push(enc.encode(
+            `Content-Disposition: form-data; name="${escapeName(p.name)}"\r\n\r\n` +
+            `${p.value}\r\n`
+          ));
+        }
+      }
+      chunks.push(enc.encode(`--${boundary}--\r\n`));
+
+      // 合并为单个 ArrayBuffer
+      let total = 0;
+      for (const c of chunks) total += c.byteLength;
+      const buf = new Uint8Array(total);
+      let off = 0;
+      for (const c of chunks) { buf.set(c, off); off += c.byteLength; }
+      // 转 base64
+      let bin = '';
+      for (let i = 0; i < buf.byteLength; i++) bin += String.fromCharCode(buf[i]);
+      const b64 = btoa(bin);
+      return {
+        body: b64,
+        encoding: 'base64',
+        contentType: `multipart/form-data; boundary=${boundary}`,
+        hasFile,
+      };
+    }
+
+    function escapeName(s) {
+      // RFC 7578：替换 CRLF 与双引号
+      return String(s).replace(/[\r\n"]/g, '');
+    }
+
     function buildBody() {
       if (bodyType === 'none') return undefined;
       if (bodyType === 'json') {
         const text = $('bodyJson').value;
         if (!text) return undefined;
-        // 简单校验 JSON 合法性，错误时抛给上层提示
         try { JSON.parse(text); } catch (e) { throw new Error('请求体 JSON 不合法：' + e.message); }
-        return text;
+        return { body: text, encoding: 'text' };
       }
-      if (bodyType === 'form') {
+      if (bodyType === 'xml') {
+        const text = $('bodyXml').value;
+        if (!text) return undefined;
+        // 用 DOMParser 校验合法性（XML 不像 JSON 有现成解析器）
+        try {
+          const doc = new DOMParser().parseFromString(text, 'application/xml');
+          const errNode = doc.querySelector('parsererror');
+          if (errNode) throw new Error(errNode.textContent || 'XML 解析失败');
+        } catch (e) {
+          throw new Error('请求体 XML 不合法：' + (e.message || e));
+        }
+        return { body: text, encoding: 'text' };
+      }
+      if (bodyType === 'text') {
+        const t = $('bodyText').value;
+        return t ? { body: t, encoding: 'text' } : undefined;
+      }
+      if (bodyType === 'x-www-form-urlencoded') {
         const kv = readKvTable('formTable');
         const params = new URLSearchParams();
         Object.entries(kv).forEach(([k, v]) => params.append(k, v));
         const s = params.toString();
-        return s || undefined;
+        return s ? { body: s, encoding: 'text' } : undefined;
       }
-      if (bodyType === 'text') {
-        const t = $('bodyText').value;
-        return t || undefined;
+      if (bodyType === 'binary') {
+        const file = $('binaryFile').files && $('binaryFile').files[0];
+        if (!file) throw new Error('请先选择一个文件');
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            // result 是 "data:<type>;base64,..."，取逗号后
+            const result = reader.result;
+            const idx = result.indexOf(',');
+            const b64 = idx >= 0 ? result.slice(idx + 1) : result;
+            resolve({ body: b64, encoding: 'base64', contentType: file.type || 'application/octet-stream' });
+          };
+          reader.onerror = () => reject(new Error('文件读取失败：' + (reader.error?.message || '')));
+          reader.readAsDataURL(file);
+        });
+      }
+      if (bodyType === 'graphql') {
+        const query = $('gqlQuery').value.trim();
+        if (!query) throw new Error('GraphQL Query 不能为空');
+        const opName = $('gqlOpName').value.trim();
+        const varsText = $('gqlVariables').value.trim();
+        const payload = { query };
+        if (opName) payload.operationName = opName;
+        if (varsText) {
+          try { payload.variables = JSON.parse(varsText); }
+          catch (e) { throw new Error('GraphQL Variables 不是合法 JSON：' + e.message); }
+        }
+        return { body: JSON.stringify(payload), encoding: 'text' };
+      }
+      if (bodyType === 'form-data') {
+        return buildFormData(); // async，但调用方会用 await
       }
       return undefined;
     }
@@ -408,7 +675,12 @@
     function inferContentType(bodyType, explicit) {
       if (explicit) return explicit;
       if (bodyType === 'json') return 'application/json';
-      if (bodyType === 'form') return 'application/x-www-form-urlencoded';
+      if (bodyType === 'x-www-form-urlencoded') return 'application/x-www-form-urlencoded';
+      if (bodyType === 'xml') return 'application/xml';
+      if (bodyType === 'text') return 'text/plain';
+      if (bodyType === 'graphql') return 'application/json';
+      if (bodyType === 'binary') return 'application/octet-stream';
+      // form-data 由 buildBody 返回带 boundary 的 Content-Type
       return undefined;
     }
 
@@ -531,10 +803,10 @@
     async function doSend() {
       clearReqError();
       let finalUrl;
-      let body;
+      let bodyResult;
       try {
         finalUrl = buildFinalUrl();
-        body = buildBody();
+        bodyResult = await buildBody();
       } catch (e) {
         showReqError(e.message);
         return;
@@ -542,19 +814,21 @@
 
       const headers = readKvTable('headersTable');
       const ctKey = Object.keys(headers).find(k => k.toLowerCase() === 'content-type');
-      const ct = inferContentType(bodyType, ctKey ? headers[ctKey] : undefined);
-      if (ct && !ctKey) headers['Content-Type'] = ct;
+      // 模式推断的 Content-Type 仅在用户未显式声明时填入
+      // multipart/form-data 由 buildFormData 自带 boundary，必须用其返回的 contentType
+      let inferredCt;
+      if (bodyResult && bodyResult.contentType) inferredCt = bodyResult.contentType;
+      else inferredCt = inferContentType(bodyType, ctKey ? headers[ctKey] : undefined);
+      if (inferredCt && !ctKey) headers['Content-Type'] = inferredCt;
       // 移除空 key
       Object.keys(headers).forEach(k => { if (!k.trim()) delete headers[k]; });
 
       const m = methodEl.value.toUpperCase();
       // GET / HEAD 按规范不允许 body
       if (m === 'GET' || m === 'HEAD') {
-        if (body !== undefined) {
+        if (bodyResult !== undefined) {
           showReqError(`${m} 方法按规范不应携带请求体，已自动忽略（仍可正常发送）`);
         }
-      } else if (body === undefined) {
-        // 正常
       }
 
       sendBtn.disabled = true;
@@ -563,19 +837,23 @@
 
       const t0 = performance.now();
 
-      // 所有请求统一经 Worker 代理，避免浏览器 CORS 拦截跨域站点
-      // （同源也走代理，保持体验一致；Worker 在边缘网络，延迟可忽略）
+      // 所有请求统一经 Worker 代理
+      const proxyPayload = {
+        url: finalUrl,
+        method: m,
+        headers,
+      };
+      if (bodyResult !== undefined && m !== 'GET' && m !== 'HEAD') {
+        proxyPayload.body = bodyResult.body;
+        proxyPayload.bodyEncoding = bodyResult.encoding || 'text';
+      }
+
       let resp, errMsg;
       try {
         resp = await fetch('/api/proxy', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            url: finalUrl,
-            method: m,
-            headers,
-            body: (m === 'GET' || m === 'HEAD') ? undefined : body,
-          }),
+          body: JSON.stringify(proxyPayload),
         });
       } catch (e) {
         errMsg = '网络错误：' + (e.message || String(e));
@@ -585,14 +863,12 @@
       sendBtn.disabled = false;
       sendBtn.innerHTML = original;
 
-      // 1. 浏览器层网络错误（极少，因为代理与前端同源）
       if (errMsg) {
         showReqError(errMsg);
         addHistory({ method: m, url: finalUrl, headers, status: 0, ok: false });
         return;
       }
 
-      // 2. 读取响应体（统一为字符串，便于 JSON 校验与渲染）
       let bodyText = '';
       try {
         bodyText = await resp.text();
@@ -600,7 +876,6 @@
         bodyText = '[无法读取响应体：' + (e.message || e) + ']';
       }
 
-      // 3. Worker 返回的 JSON 错误（如 forbidden_host）→ 友好提示
       const ctHeader = resp.headers.get('content-type') || '';
       if (resp.status >= 400 && ctHeader.includes('application/json')) {
         try {
@@ -610,10 +885,9 @@
           showReqError(`代理拦截（${resp.status}）：${msg}`);
           addHistory({ method: m, url: finalUrl, headers, status: resp.status, ok: false });
           return;
-        } catch { /* fallthrough 到正常渲染 */ }
+        } catch { /* fallthrough */ }
       }
 
-      // 4. 包装为带 headers 的对象，复用 renderResponse
       const fakeResp = new Response(bodyText, {
         status: resp.status,
         statusText: resp.statusText,
@@ -650,9 +924,15 @@
       }
     });
 
-    // 默认示例：百度首页（验证跨域也能调通）
-    methodEl.value = 'GET';
-    urlEl.value = 'https://www.baidu.com/';
+    // 默认示例：JSONPlaceholder（验证 JSON 模式 + 跨域代理）
+    methodEl.value = 'POST';
+    urlEl.value = 'https://jsonplaceholder.typicode.com/posts';
+    // 切到 JSON 模式并填一个示例 body
+    bodyType = 'json';
+    bodyTabs.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+    bodyTabs.querySelector('button[data-type="json"]').classList.add('active');
+    switchBodyWrap('json');
+    $('bodyJson').value = JSON.stringify({ title: 'foo', body: 'bar', userId: 1 }, null, 2);
   </script>
 </body>
 </html>

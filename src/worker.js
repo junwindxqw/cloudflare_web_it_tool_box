@@ -122,7 +122,7 @@ async function handleBaidu(request, path) {
 // - 上游超时 20s
 // ============================================================
 
-const PROXY_MAX_BODY = 1024 * 1024;          // 1 MiB
+const PROXY_MAX_BODY = 5 * 1024 * 1024;     // 5 MiB（原始字节上限；base64 编码后约 6.7 MiB）
 const PROXY_UPSTREAM_TIMEOUT_MS = 20000;     // 20s
 
 // 这些 Header 名一律不透传到上游（hop-by-hop + 工具域污染）
@@ -275,7 +275,7 @@ async function handleProxy(request) {
     return jsonResponse({ error: 'invalid_json' }, 400, PROXY_CORS_HEADERS);
   }
 
-  const { url: targetUrl, method: upstreamMethod = 'GET', headers: rawHeaders = {}, body: upstreamBody } = payload || {};
+  const { url: targetUrl, method: upstreamMethod = 'GET', headers: rawHeaders = {}, body: upstreamBody, bodyEncoding = 'text' } = payload || {};
 
   if (typeof targetUrl !== 'string' || !targetUrl) {
     return jsonResponse({ error: 'missing_url' }, 400, PROXY_CORS_HEADERS);
@@ -317,16 +317,37 @@ async function handleProxy(request) {
   }
 
   // 7. body 长度限制（GET/HEAD 不带 body）
+  //    支持 text（原始字符串）/ base64（multipart、binary 文件等二进制场景）
   let body = undefined;
+  let contentLengthHeader = null;
   if (m !== 'GET' && m !== 'HEAD' && upstreamBody !== undefined && upstreamBody !== null && upstreamBody !== '') {
     if (typeof upstreamBody !== 'string') {
       return jsonResponse({ error: 'invalid_body', error_description: '请求体必须是字符串' }, 400, PROXY_CORS_HEADERS);
     }
-    if (upstreamBody.length > PROXY_MAX_BODY) {
-      return jsonResponse({ error: 'body_too_large', error_description: `请求体超过 ${PROXY_MAX_BODY} 字节` }, 413, PROXY_CORS_HEADERS);
+    if (bodyEncoding === 'base64') {
+      // base64 解码为 ArrayBuffer
+      try {
+        const bin = atob(upstreamBody);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        if (bytes.byteLength > PROXY_MAX_BODY) {
+          return jsonResponse({ error: 'body_too_large', error_description: `请求体超过 ${PROXY_MAX_BODY} 字节` }, 413, PROXY_CORS_HEADERS);
+        }
+        body = bytes.buffer;
+        contentLengthHeader = String(bytes.byteLength);
+      } catch {
+        return jsonResponse({ error: 'invalid_body_encoding', error_description: 'base64 解码失败' }, 400, PROXY_CORS_HEADERS);
+      }
+    } else {
+      if (upstreamBody.length > PROXY_MAX_BODY) {
+        return jsonResponse({ error: 'body_too_large', error_description: `请求体超过 ${PROXY_MAX_BODY} 字节` }, 413, PROXY_CORS_HEADERS);
+      }
+      body = upstreamBody;
+      contentLengthHeader = null; // 让 fetch 自动算
     }
-    body = upstreamBody;
   }
+  // base64 模式下显式补 Content-Length，避免 chunked 编码
+  if (contentLengthHeader) outHeaders['Content-Length'] = contentLengthHeader;
 
   // 8. 上游 fetch + 20s 超时
   const controller = new AbortController();
