@@ -147,6 +147,45 @@
     }
     .fd-file-cell .fd-pick-btn:hover { color: var(--accent-strong); border-color: var(--accent); }
     .kv-table td.fd-type { width: 70px; text-align: center; padding: 0 4px; }
+
+    /* 顶层请求配置 Tab（与 body-tabs 风格一致，但字号稍大）*/
+    .req-tabs {
+      display: flex; gap: 4px; flex-wrap: wrap;
+    }
+    .req-tabs button {
+      padding: 6px 18px; background: transparent; border: 1px solid var(--border);
+      border-radius: 6px; cursor: pointer; color: var(--muted);
+      font-size: 14px; font-weight: 500;
+    }
+    .req-tabs button.active {
+      background: var(--accent); color: #fff; border-color: var(--accent);
+    }
+    .req-tabs button:hover:not(.active) { color: var(--accent-strong); border-color: var(--accent); }
+
+    /* 每个 Tab 内容容器：避免切 Tab 时下方抖动 */
+    [data-req-tab-pane] {
+      min-height: 320px;
+    }
+
+    /* Params 工具行：左侧提示 + 右侧「从 URL 解析」入口 */
+    .pane-toolbar {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 8px; min-height: 24px;
+    }
+    .pane-toolbar .pane-hint {
+      color: var(--muted); font-size: 13px; font-weight: 400;
+    }
+    .pane-link {
+      font-size: 12px; color: var(--muted); cursor: pointer; user-select: none;
+      list-style: none;
+    }
+    .pane-link::-webkit-details-marker { display: none; }
+    .pane-link::before {
+      content: '▸'; display: inline-block; margin-right: 4px;
+      transition: transform 0.15s;
+    }
+    details[open] > summary.pane-link::before { transform: rotate(90deg); }
+    .pane-link:hover { color: var(--accent-strong); }
   </style>
 </head>
 <body>
@@ -191,99 +230,109 @@
       <div id="reqError" hidden></div>
     </section>
 
-    <!-- 查询参数 -->
+    <!-- 请求配置（Tab 切换：Params / Headers / Body）-->
     <section class="panel">
       <div class="panel-title-row">
-        <div class="panel-title"><span class="dot"></span>Query 参数 <span id="qsHint" style="color:var(--muted);font-weight:400;font-size:13px;margin-left:6px;"></span></div>
-        <details style="margin:0;">
-          <summary style="font-size:12px;color:var(--muted);">从 URL 解析</summary>
-        </details>
-      </div>
-      <table class="kv-table" id="qsTable">
-        <tbody></tbody>
-      </table>
-      <button class="add-kv-btn" data-target="qsTable">+ 添加参数</button>
-    </section>
-
-    <!-- 请求头 -->
-    <section class="panel">
-      <div class="panel-title"><span class="dot"></span>请求头 Headers</div>
-      <table class="kv-table" id="headersTable">
-        <tbody></tbody>
-      </table>
-      <button class="add-kv-btn" data-target="headersTable">+ 添加请求头</button>
-    </section>
-
-    <!-- 请求体 -->
-    <section class="panel">
-      <div class="panel-title"><span class="dot"></span>请求体 Body</div>
-      <div class="body-tabs" id="bodyTabs">
-        <button data-type="none" class="active">none</button>
-        <button data-type="form-data">form-data</button>
-        <button data-type="x-www-form-urlencoded">x-www-form-urlencoded</button>
-        <button data-type="json">JSON</button>
-        <button data-type="xml">XML</button>
-        <button data-type="text">Text</button>
-        <button data-type="binary">Binary</button>
-        <button data-type="graphql">GraphQL</button>
-      </div>
-
-      <!-- form-data：每行可切 Text/File -->
-      <div id="bodyFormDataWrap" hidden>
-        <table class="kv-table" id="formDataTable"><tbody></tbody></table>
-        <button class="add-kv-btn" data-target="formDataTable">+ 添加字段</button>
-      </div>
-
-      <!-- x-www-form-urlencoded -->
-      <div id="bodyFormWrap" hidden>
-        <table class="kv-table" id="formTable"><tbody></tbody></table>
-        <button class="add-kv-btn" data-target="formTable">+ 添加字段</button>
-      </div>
-
-      <!-- JSON -->
-      <div id="bodyJsonWrap" hidden>
-        <textarea id="bodyJson" class="json-input" style="min-height:140px;" placeholder='{"name": "value"}' spellcheck="false"></textarea>
-      </div>
-
-      <!-- XML -->
-      <div id="bodyXmlWrap" hidden>
-        <textarea id="bodyXml" class="json-input" style="min-height:140px;" placeholder='&lt;root&gt;&lt;item&gt;value&lt;/item&gt;&lt;/root&gt;' spellcheck="false"></textarea>
-      </div>
-
-      <!-- Text -->
-      <div id="bodyTextWrap" hidden>
-        <textarea id="bodyText" class="json-input" style="min-height:140px;" placeholder="任意文本…" spellcheck="false"></textarea>
-      </div>
-
-      <!-- Binary：单文件 -->
-      <div id="bodyBinaryWrap" hidden>
-        <div style="display:flex; gap:10px; align-items:center;">
-          <input type="file" id="binaryFile" style="flex:1;">
-          <button class="add-kv-btn" type="button" id="binaryClearBtn" style="margin-top:0; flex:0 0 auto;">清空</button>
-        </div>
-        <div id="binaryInfo" style="margin-top:8px; color:var(--muted); font-size:12px; font-family:var(--mono);"></div>
-      </div>
-
-      <!-- GraphQL：query + variables(JSON) + operationName -->
-      <div id="bodyGraphqlWrap" hidden>
-        <div style="display:flex; flex-direction:column; gap:10px;">
-          <div>
-            <label style="display:block; font-size:12px; color:var(--muted); margin-bottom:4px;">Query <span style="color:#ef4444;">*</span></label>
-            <textarea id="gqlQuery" class="json-input" style="min-height:120px;" placeholder="query GetUser($id: ID!) { user(id: $id) { name } }" spellcheck="false"></textarea>
-          </div>
-          <div>
-            <label style="display:block; font-size:12px; color:var(--muted); margin-bottom:4px;">Variables (JSON)</label>
-            <textarea id="gqlVariables" class="json-input" style="min-height:80px;" placeholder='{"id": "1"}' spellcheck="false"></textarea>
-          </div>
-          <div>
-            <label style="display:block; font-size:12px; color:var(--muted); margin-bottom:4px;">Operation Name</label>
-            <input type="text" id="gqlOpName" class="mono" style="width:100%; padding:8px; background:transparent; border:1px solid var(--border); border-radius:6px; color:inherit; font-family:var(--mono);" placeholder="GetUser" spellcheck="false">
-          </div>
+        <div class="panel-title"><span class="dot"></span>请求配置</div>
+        <div class="req-tabs">
+          <button data-req-tab="params" class="active">Params</button>
+          <button data-req-tab="headers">Headers</button>
+          <button data-req-tab="body">Body</button>
         </div>
       </div>
+
+      <!-- Params -->
+      <div data-req-tab-pane="params">
+        <div class="pane-toolbar">
+          <span id="qsHint" class="pane-hint"></span>
+          <details style="margin:0;">
+            <summary class="pane-link">从 URL 解析</summary>
+          </details>
+        </div>
+        <table class="kv-table" id="qsTable">
+          <tbody></tbody>
+        </table>
+        <button class="add-kv-btn" data-target="qsTable">+ 添加参数</button>
+      </div>
+
+      <!-- Headers -->
+      <div data-req-tab-pane="headers" hidden>
+        <table class="kv-table" id="headersTable">
+          <tbody></tbody>
+        </table>
+        <button class="add-kv-btn" data-target="headersTable">+ 添加请求头</button>
+      </div>
+
+      <!-- Body -->
+      <div data-req-tab-pane="body" hidden>
+        <div class="body-tabs" id="bodyTabs">
+          <button data-type="none" class="active">none</button>
+          <button data-type="form-data">form-data</button>
+          <button data-type="x-www-form-urlencoded">x-www-form-urlencoded</button>
+          <button data-type="json">JSON</button>
+          <button data-type="xml">XML</button>
+          <button data-type="text">Text</button>
+          <button data-type="binary">Binary</button>
+          <button data-type="graphql">GraphQL</button>
+        </div>
+
+        <!-- form-data：每行可切 Text/File -->
+        <div id="bodyFormDataWrap" hidden>
+          <table class="kv-table" id="formDataTable"><tbody></tbody></table>
+          <button class="add-kv-btn" data-target="formDataTable">+ 添加字段</button>
+        </div>
+
+        <!-- x-www-form-urlencoded -->
+        <div id="bodyFormWrap" hidden>
+          <table class="kv-table" id="formTable"><tbody></tbody></table>
+          <button class="add-kv-btn" data-target="formTable">+ 添加字段</button>
+        </div>
+
+        <!-- JSON -->
+        <div id="bodyJsonWrap" hidden>
+          <textarea id="bodyJson" class="json-input" style="min-height:140px;" placeholder='{"name": "value"}' spellcheck="false"></textarea>
+        </div>
+
+        <!-- XML -->
+        <div id="bodyXmlWrap" hidden>
+          <textarea id="bodyXml" class="json-input" style="min-height:140px;" placeholder='&lt;root&gt;&lt;item&gt;value&lt;/item&gt;&lt;/root&gt;' spellcheck="false"></textarea>
+        </div>
+
+        <!-- Text -->
+        <div id="bodyTextWrap" hidden>
+          <textarea id="bodyText" class="json-input" style="min-height:140px;" placeholder="任意文本…" spellcheck="false"></textarea>
+        </div>
+
+        <!-- Binary：单文件 -->
+        <div id="bodyBinaryWrap" hidden>
+          <div style="display:flex; gap:10px; align-items:center;">
+            <input type="file" id="binaryFile" style="flex:1;">
+            <button class="add-kv-btn" type="button" id="binaryClearBtn" style="margin-top:0; flex:0 0 auto;">清空</button>
+          </div>
+          <div id="binaryInfo" style="margin-top:8px; color:var(--muted); font-size:12px; font-family:var(--mono);"></div>
+        </div>
+
+        <!-- GraphQL：query + variables(JSON) + operationName -->
+        <div id="bodyGraphqlWrap" hidden>
+          <div style="display:flex; flex-direction:column; gap:10px;">
+            <div>
+              <label style="display:block; font-size:12px; color:var(--muted); margin-bottom:4px;">Query <span style="color:#ef4444;">*</span></label>
+              <textarea id="gqlQuery" class="json-input" style="min-height:120px;" placeholder="query GetUser($id: ID!) { user(id: $id) { name } }" spellcheck="false"></textarea>
+            </div>
+            <div>
+              <label style="display:block; font-size:12px; color:var(--muted); margin-bottom:4px;">Variables (JSON)</label>
+              <textarea id="gqlVariables" class="json-input" style="min-height:80px;" placeholder='{"id": "1"}' spellcheck="false"></textarea>
+            </div>
+            <div>
+              <label style="display:block; font-size:12px; color:var(--muted); margin-bottom:4px;">Operation Name</label>
+              <input type="text" id="gqlOpName" class="mono" style="width:100%; padding:8px; background:transparent; border:1px solid var(--border); border-radius:6px; color:inherit; font-family:var(--mono);" placeholder="GetUser" spellcheck="false">
+            </div>
+          </div>
+        </div>
+      </div>
     </section>
 
-    <!-- 响应区 -->
+    <!-- 响应区（紧跟请求配置之后，一屏内可见）-->
     <section class="panel">
       <div class="panel-title"><span class="dot"></span>响应 Response</div>
 
@@ -458,6 +507,20 @@
     setupKvTable('qsTable');
     setupKvTable('headersTable');
     setupKvTable('formTable');
+
+    // 顶层请求配置 Tab 切换（Params / Headers / Body）
+    const reqTabsEl = document.querySelector('.req-tabs');
+    reqTabsEl.addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      const name = btn.dataset.reqTab;
+      if (!name) return;
+      reqTabsEl.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelectorAll('[data-req-tab-pane]').forEach(p => {
+        p.hidden = p.dataset.reqTabPane !== name;
+      });
+    });
     // form-data 表特殊：行级支持 Text/File
     {
       const tbody = $('formDataTable').querySelector('tbody');
@@ -490,7 +553,7 @@
     urlEl.addEventListener('input', syncQsHint);
 
     // 「从 URL 解析」细节展开时把 URL 的 query 灌进表格
-    document.querySelector('details').addEventListener('toggle', (e) => {
+    document.querySelector('[data-req-tab-pane="params"] details').addEventListener('toggle', (e) => {
       if (!e.target.open) return;
       let u;
       try { u = new URL(urlEl.value); } catch { return; }
@@ -933,6 +996,13 @@
     bodyTabs.querySelector('button[data-type="json"]').classList.add('active');
     switchBodyWrap('json');
     $('bodyJson').value = JSON.stringify({ title: 'foo', body: 'bar', userId: 1 }, null, 2);
+
+    // 默认激活 Body Tab（让首屏直接看到示例 JSON 数据）
+    reqTabsEl.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+    reqTabsEl.querySelector('button[data-req-tab="body"]').classList.add('active');
+    document.querySelectorAll('[data-req-tab-pane]').forEach(p => {
+      p.hidden = p.dataset.reqTabPane !== 'body';
+    });
   </script>
 </body>
 </html>
