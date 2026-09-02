@@ -1,0 +1,7 @@
+# Cloudflare Workers 静态资源缓存策略
+# https://developers.cloudflare.com/workers/static-assets/headers/
+#
+# 样式与脚本和 HTML 同步发版：强制浏览器每次revalidate（配合 ETag 命中 304），
+# 避免发新版后出现「新 HTML + 旧 CSS/JS」的布局错乱。
+/assets/*
+  Cache-Control: no-cache
