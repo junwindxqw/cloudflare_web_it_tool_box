@@ -18,6 +18,7 @@
     { href: '/tools/json/',           icon: '{ }', name: 'JSON 格式化',   cat: '开发' },
     { href: '/tools/base64/',         icon: '🔐',  name: 'Base64 编解码', cat: '开发' },
     { href: '/tools/url/',            icon: '🔗',  name: 'URL 编解码',    cat: '开发' },
+    { href: '/tools/secret/',         icon: '🗝️', name: '私密内容分享',  cat: '开发' },
     { href: '/tools/color/',          icon: '🎨',  name: '颜色转换',      cat: '设计' },
     { href: '/tools/image-convert/',  icon: '🔄',  name: '图片格式转换',  cat: '设计' },
     { href: '/tools/image-compress/', icon: '🗜️', name: '图片压缩',      cat: '设计' },

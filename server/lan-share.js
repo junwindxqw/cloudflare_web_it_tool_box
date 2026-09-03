@@ -5,11 +5,12 @@
  * 不暴露公网：纯内网文件分享，数据完全在本机磁盘。
  *
  * 数据类别：单文件 / 多文件包 / 文本片段。
- * 存储路径：./data/share_<id>/{meta.json, files/<idx>_<safeName>}
+ * 存储路径：./data/share_<id>/{meta.json, files/<idx>}
+ *           文件名只存 meta.json，绝不参与落盘路径（消除路径穿越面）。
  *
- * 零三方依赖（node 内置：http/crypto/path/fs/os/child_process/url）。
+ * 零三方依赖（node 内置：http/crypto/path/fs/os/url）。
  * multipart 解析：手写（流式，避免 200MB 进内存）。
- * ZIP 打包：Windows 用 PowerShell Compress-Archive；其他系统走手写流式 ZIP。
+ * ZIP 打包：手写流式 ZIP（跨平台一致，逐文件读盘）。
  */
 
 'use strict';
@@ -20,9 +21,6 @@ const path = require('node:path');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const os = require('node:os');
-const { execFile } = require('node:child_process');
-const { promisify } = require('node:util');
-const execFileP = promisify(execFile);
 
 const HOST = process.env.LAN_SHARE_HOST || '127.0.0.1';
 const PORT = Number(process.env.LAN_SHARE_PORT || 8789);
@@ -33,7 +31,8 @@ const MAX_FILE_BYTES = 200 * 1024 * 1024;       // 200 MB / 文件
 const MAX_TOTAL_BYTES = 2 * 1024 * 1024 * 1024; // 2 GB / 总
 
 // ========================================================================
-// 路径安全：白名单校验 + resolve 后二次校验 startsWith(DATA_DIR)
+// 路径安全：外部字符串一律不参与落盘路径；路径拼接后用 path.relative
+// 校验必须严格位于基准目录之内（比 startsWith 语义更严）
 // ========================================================================
 
 const ID_PATTERN = /^[A-Za-z0-9_-]{4,32}$/;
@@ -47,35 +46,36 @@ function assertSafeId(id, label = 'id') {
 
 function assertSafeFileName(name) {
   if (typeof name !== 'string') throw new Error('invalid_filename');
-  // 只允许文件名不含路径分隔符、控制字符、Windows 保留字符
-  if (!/^[\w\x80-\xff\-. ()[\]（）【】、，,~！!@+=#&%$^_{}]+$/.test(name)) {
+  // 文件名只用于展示与下载头（Content-Disposition / zip 条目名），
+  // 不参与落盘路径；仅拒绝路径分隔符、控制字符与 ".."
+  if (name.includes('/') || name.includes('\\') || name.includes('..')) {
     throw new Error('invalid_filename');
   }
-  if (name.length > 200) throw new Error('invalid_filename');
+  if (/[\x00-\x1f\x7f]/.test(name)) throw new Error('invalid_filename');
+  if (name.trim() === '' || name.length > 200) throw new Error('invalid_filename');
   return name;
 }
 
-// 严格白名单下构造 share 目录路径；返回绝对路径并二次校验
-function shareDirFor(id) {
-  assertSafeId(id, 'share_id');
-  const p = path.resolve(DATA_DIR, 'share_' + id);
-  // 二次校验：必须严格在 DATA_DIR 下
-  if (p !== DATA_DIR && !p.startsWith(DATA_DIR + path.sep)) {
+// 校验 p 必须严格位于 base 之内（不允许等于 base、跳出上级或绝对路径）
+function assertInsideBase(base, p) {
+  const rel = path.relative(base, p);
+  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) {
     throw new Error('path_escape');
   }
   return p;
 }
 
-// share 内的文件路径：idx 必须非负整数，name 必须合法
-function fileInShare(shareDir, idx, name) {
+// 严格白名单下构造 share 目录路径（id 白名单不含分隔符与点号，二次校验兜底）
+function shareDirFor(id) {
+  assertSafeId(id, 'share_id');
+  return assertInsideBase(DATA_DIR, path.resolve(DATA_DIR, 'share_' + id));
+}
+
+// share 内第 idx 个文件的落盘路径：纯索引命名，任何外部字符串都不参与
+function indexedFilePath(shareDir, idx) {
   if (!Number.isInteger(idx) || idx < 0 || idx > 9999) throw new Error('invalid_index');
-  assertSafeFileName(name);
-  const p = path.resolve(shareDir, 'files', `${idx}_${name}`);
-  // 二次校验
-  if (!p.startsWith(shareDir + path.sep + 'files' + path.sep)) {
-    throw new Error('path_escape');
-  }
-  return p;
+  const filesDir = path.resolve(shareDir, 'files');
+  return assertInsideBase(filesDir, path.resolve(filesDir, String(idx)));
 }
 
 function safeFileName(name, fallback = 'file') {
@@ -86,18 +86,13 @@ function safeFileName(name, fallback = 'file') {
 // zip 输出临时路径
 function tmpZipPath(id) {
   assertSafeId(id, 'share_id');
-  const p = path.resolve(DATA_DIR, `_zip_${id}.zip`);
-  if (p !== DATA_DIR && !p.startsWith(DATA_DIR + path.sep)) throw new Error('path_escape');
-  return p;
+  return assertInsideBase(DATA_DIR, path.resolve(DATA_DIR, `_zip_${id}.zip`));
 }
 
-// tmp 文件（multipart 写盘过程中的中间文件）
-function tmpUploadPath(id, fallbackName) {
+// tmp 文件（multipart 写盘过程中的中间文件），id 为服务端随机数，不掺任何外部输入
+function tmpUploadPath(id) {
   assertSafeId(id, 'tmp_id');
-  const safe = safeFileName(fallbackName, 'blob');
-  const p = path.resolve(DATA_DIR, `_tmp_${id}_${safe}`);
-  if (p !== DATA_DIR && !p.startsWith(DATA_DIR + path.sep)) throw new Error('path_escape');
-  return p;
+  return assertInsideBase(DATA_DIR, path.resolve(DATA_DIR, `_tmp_${id}`));
 }
 
 // ========================================================================
@@ -108,10 +103,13 @@ function newId(bytes = 8) {
   return crypto.randomBytes(bytes).toString('base64url');
 }
 
-// 启动时扫描磁盘用量
+// 扫描磁盘用量
 async function calcTotalBytes(root) {
   let total = 0;
   async function walk(dir) {
+    // 防御式收口：只统计 root 之下的内容
+    const rel = path.relative(root, dir);
+    if (rel !== '' && (rel.startsWith('..') || path.isAbsolute(rel))) return;
     let entries;
     try { entries = await fsp.readdir(dir, { withFileTypes: true }); } catch { return; }
     for (const e of entries) {
@@ -119,6 +117,7 @@ async function calcTotalBytes(root) {
       if (e.isDirectory()) await walk(p);
       else if (e.isFile()) {
         try { total += (await fsp.stat(p)).size; } catch { /* ignore */ }
+      }
     }
   }
   await walk(root);
@@ -232,8 +231,7 @@ class MultipartParser {
     if (!part) return;
     if (part.isFile) {
       if (!part.tmpPath) {
-        const id = newId(8);
-        part.tmpPath = tmpUploadPath(id, part.filename);
+        part.tmpPath = tmpUploadPath(newId(8));
         await fsp.writeFile(part.tmpPath, chunk);
       } else {
         await fsp.appendFile(part.tmpPath, chunk);
@@ -258,29 +256,15 @@ class MultipartParser {
   }
 
   async end() {
+    // 仅收尾未闭合的 part；tmp 文件的清理由调用方的失败分支负责，
+    // 成功路径要靠 rename 把 tmp 落位，绝不能在这里提前删
     if (this.currentPart) await this.onPartEnd();
-    // 清理所有未消费完的 tmp 文件
-    for (const part of this.parts) {
-      if (part.isFile && part.tmpPath && !part.consumed) {
-        try { await fsp.rm(part.tmpPath, { force: true }); } catch { /* ignore */ }
-      }
-    }
   }
 }
 
 // ========================================================================
-// ZIP 打包
+// ZIP 打包（跨平台：逐个文件读盘打包，内存峰值 ≈ 最大单文件）
 // ========================================================================
-
-async function packZipWindows(srcDir, zipPath) {
-  // srcDir 已被 path.resolve + startsWith 校验
-  await execFileP(
-    'powershell',
-    ['-NoProfile', '-NonInteractive', '-Command',
-     `Compress-Archive -Path "${srcDir}\\*" -DestinationPath "${zipPath}" -Force`],
-    { windowsHide: true, maxBuffer: 4 * 1024 * 1024 }
-  );
-}
 
 function crc32(buf) {
   if (typeof require('node:zlib').crc32 === 'function') return require('node:zlib').crc32(buf);
@@ -294,63 +278,62 @@ function crc32(buf) {
   return (crc ^ 0xFFFFFFFF) >>> 0;
 }
 
-async function packZipStreaming(zipPath, items) {
-  // items: [{ name, data }]
+// items: [{ name, filePath }] —— name 只写入 zip 目录记录（来自 meta，不碰磁盘路径）
+// 按 PKWARE APPNOTE 精确布局：local 30 字节定长 + central 46 字节定长 + EOCD 22 字节；
+// flags 置 bit 11（0x0800）声明文件名为 UTF-8
+async function packZipFromDisk(zipPath, items) {
+  const u16 = (v) => { const b = Buffer.alloc(2); b.writeUInt16LE(v); return b; };
+  const u32 = (v) => { const b = Buffer.alloc(4); b.writeUInt32LE(v); return b; };
   const out = fs.createWriteStream(zipPath);
   const central = [];
   let offset = 0;
   for (const e of items) {
+    const data = await fsp.readFile(e.filePath);
     const nameBuf = Buffer.from(e.name, 'utf8');
-    const crcBuf = Buffer.alloc(4); crcBuf.writeUInt32LE(e.crc, 0);
-    const sizeBuf = Buffer.alloc(4); sizeBuf.writeUInt32LE(e.data.length, 0);
+    const crc = crc32(data);
     const local = Buffer.concat([
-      Buffer.from([0x50, 0x4b, 0x03, 0x04]),
-      Buffer.from([0x14, 0, 0, 0]),
-      Buffer.from([0, 0]),
-      Buffer.from([0, 0]),
-      Buffer.from([0, 0]),
-      Buffer.from([0, 0]),
-      crcBuf,
-      sizeBuf, sizeBuf,
-      Buffer.from([nameBuf.length & 0xff, (nameBuf.length >> 8) & 0xff]),
+      u32(0x04034b50),        // local file header 签名
+      u16(20),                // version needed
+      u16(0x0800),            // flags: UTF-8 文件名
+      u16(0),                 // method: store（不压缩）
+      u16(0), u16(0x21),      // time / date（1980-01-01 占位）
+      u32(crc),
+      u32(data.length),       // compressed size
+      u32(data.length),       // uncompressed size
+      u16(nameBuf.length),
+      u16(0),                 // extra len
       nameBuf,
-      e.data,
+      data,
     ]);
     out.write(local);
-    central.push({ name: nameBuf, crc: e.crc, size: e.data.length, offset });
+    central.push({ nameBuf, crc, size: data.length, offset });
     offset += local.length;
   }
   const cdStart = offset;
   let cdSize = 0;
   for (const c of central) {
-    const crcBuf = Buffer.alloc(4); crcBuf.writeUInt32LE(c.crc, 0);
-    const sizeBuf = Buffer.alloc(4); sizeBuf.writeUInt32LE(c.size, 0);
-    const offBuf = Buffer.alloc(4); offBuf.writeUInt32LE(c.offset, 0);
-    const nameLenBuf = Buffer.from([c.name.length & 0xff, (c.name.length >> 8) & 0xff]);
     const cd = Buffer.concat([
-      Buffer.from([0x50, 0x4b, 0x01, 0x02]),
-      Buffer.from([0x14, 0, 0, 0]),
-      Buffer.from([0x14, 0, 0, 0]),
-      Buffer.from([0, 0, 0, 0]),
-      Buffer.from([0, 0, 0, 0]),
-      crcBuf, sizeBuf, sizeBuf,
-      nameLenBuf,
-      Buffer.from([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
-      offBuf,
-      c.name,
+      u32(0x02014b50),        // central directory 签名
+      u16(20), u16(20),       // version made by / version needed
+      u16(0x0800), u16(0),    // flags / method
+      u16(0), u16(0x21),      // time / date
+      u32(c.crc),
+      u32(c.size), u32(c.size),
+      u16(c.nameBuf.length), u16(0), u16(0), // name / extra / comment len
+      u16(0), u16(0),         // disk start / internal attrs
+      u32(0),                 // external attrs
+      u32(c.offset),          // local header offset
+      c.nameBuf,
     ]);
     out.write(cd);
     cdSize += cd.length;
   }
-  const cdStartBuf = Buffer.alloc(4); cdStartBuf.writeUInt32LE(cdStart, 0);
-  const cdSizeBuf = Buffer.alloc(4); cdSizeBuf.writeUInt32LE(cdSize, 0);
-  const cdCountBuf = Buffer.alloc(4); cdCountBuf.writeUInt16LE(central.length, 0);
   const eocd = Buffer.concat([
-    Buffer.from([0x50, 0x4b, 0x05, 0x06]),
-    Buffer.from([0, 0, 0, 0]),
-    cdCountBuf, cdCountBuf,
-    cdSizeBuf, cdStartBuf,
-    Buffer.from([0, 0]),
+    u32(0x06054b50),          // EOCD 签名
+    u16(0), u16(0),           // disk number / CD 起始 disk
+    u16(central.length), u16(central.length),
+    u32(cdSize), u32(cdStart),
+    u16(0),                   // comment len
   ]);
   out.write(eocd);
   await new Promise((res, rej) => { out.end((err) => err ? rej(err) : res()); });
@@ -408,26 +391,23 @@ async function handleUpload(req, res) {
 
   const parser = new MultipartParser(boundary);
   try {
-    await new Promise((resolve, reject) => {
-      let aborted = false;
-      req.on('data', async (chunk) => {
-        if (aborted) return;
-        try {
-          const usedBefore = await calcTotalBytes(DATA_DIR);
-          if (usedBefore + parser.totalBytesIn + chunk.length > MAX_TOTAL_BYTES) {
-            aborted = true;
-            throw new Error('storage_full');
-          }
-          await parser.feed(chunk);
-        } catch (e) { aborted = true; reject(e); req.destroy(); }
-      });
-      req.on('end', async () => {
-        if (aborted) return;
-        try { await parser.end(); resolve(); } catch (e) { reject(e); }
-      });
-      req.on('error', reject);
-    });
+    // 用 for-await 顺序消费请求：async 'data' 回调会让 'end' 抢在 feed 之前执行（竞态）
+    for await (const chunk of req) {
+      const usedBefore = await calcTotalBytes(DATA_DIR);
+      if (usedBefore + parser.totalBytesIn + chunk.length > MAX_TOTAL_BYTES) {
+        throw new Error('storage_full');
+      }
+      await parser.feed(chunk);
+    }
+    await parser.end();
   } catch (e) {
+    req.destroy();
+    // 清理本次请求已落盘的 tmp 文件
+    for (const part of parser.parts) {
+      if (part.isFile && part.tmpPath) {
+        try { await fsp.rm(part.tmpPath, { force: true }); } catch { /* ignore */ }
+      }
+    }
     await fsp.rm(shareDir, { recursive: true, force: true });
     if (e.message === 'storage_full') return send(res, 507, { error: 'storage_full' });
     if (e.message.startsWith('文件过大')) return send(res, 413, { error: 'file_too_large', error_description: e.message });
@@ -449,14 +429,14 @@ async function handleUpload(req, res) {
       const ext = (labelField && /\.[a-z0-9]{1,8}$/i.test(labelField.value))
         ? labelField.value.match(/\.[a-z0-9]{1,8}$/i)[1].toLowerCase() : 'txt';
       const fname = `snippet.${safeFileName(ext, 'txt')}`;
-      const finalPath = fileInShare(shareDir, 0, fname);
+      const finalPath = indexedFilePath(shareDir, 0);
       await fsp.writeFile(finalPath, textField.value, 'utf8');
       items.push({ name: fname, size: Buffer.byteLength(textField.value, 'utf8'), mime: 'text/plain; charset=utf-8' });
     } else if (fileParts.length === 1) {
       type = 'file';
       const p = fileParts[0];
       const finalName = safeFileName(p.filename, 'file');
-      const finalPath = fileInShare(shareDir, 0, finalName);
+      const finalPath = indexedFilePath(shareDir, 0);
       itemsToFinalize.push({ tmpPath: p.tmpPath, finalPath, size: p.size });
       items.push({ name: finalName, size: p.size, mime: p.contentType || 'application/octet-stream' });
     } else if (fileParts.length > 1) {
@@ -464,7 +444,7 @@ async function handleUpload(req, res) {
       for (let i = 0; i < fileParts.length; i++) {
         const p = fileParts[i];
         const finalName = safeFileName(p.filename, `file_${i + 1}`);
-        const finalPath = fileInShare(shareDir, i, finalName);
+        const finalPath = indexedFilePath(shareDir, i);
         itemsToFinalize.push({ tmpPath: p.tmpPath, finalPath, size: p.size });
         items.push({ name: finalName, size: p.size, mime: p.contentType || 'application/octet-stream' });
       }
@@ -543,7 +523,7 @@ async function handleFileDownload(req, res, id, idxStr) {
   catch { return send(res, 404, { error: 'not_found' }); }
   if (!meta.items[idx]) return send(res, 404, { error: 'no_such_file' });
   let filePath;
-  try { filePath = fileInShare(shareDir, idx, meta.items[idx].name); }
+  try { filePath = indexedFilePath(shareDir, idx); }
   catch { return send(res, 400, { error: 'bad_path' }); }
   if (!fs.existsSync(filePath)) return send(res, 404, { error: 'file_missing' });
   const encoded = encodeURIComponent(meta.items[idx].name);
@@ -566,18 +546,11 @@ async function handleZipDownload(req, res, id) {
   if (meta.type !== 'bundle') return send(res, 400, { error: 'not_bundle' });
 
   try {
-    if (process.platform === 'win32') {
-      const filesDir = path.resolve(shareDir, 'files');
-      await packZipWindows(filesDir, zipPath);
-    } else {
-      const items = [];
-      for (let i = 0; i < meta.items.length; i++) {
-        const filePath = fileInShare(shareDir, i, meta.items[i].name);
-        const data = await fsp.readFile(filePath);
-        items.push({ name: meta.items[i].name, data, crc: crc32(data) });
-      }
-      await packZipStreaming(zipPath, items);
+    const items = [];
+    for (let i = 0; i < meta.items.length; i++) {
+      items.push({ name: meta.items[i].name, filePath: indexedFilePath(shareDir, i) });
     }
+    await packZipFromDisk(zipPath, items);
     const size = (await fsp.stat(zipPath)).size;
     res.writeHead(200, {
       'Content-Type': 'application/zip',

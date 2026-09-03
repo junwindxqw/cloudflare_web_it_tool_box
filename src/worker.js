@@ -12,7 +12,11 @@
  *   POST /api/baidu/enhance    图像清晰度增强
  *   POST /api/baidu/upscale    图像无损放大（x2）
  *   POST /api/proxy            通用请求代理（仅限 http/https，禁私网/环回地址）
+ *   /api/secret/*              私密内容分享（端到端加密，仅存密文）
+ *   /s/<id>                    私密内容查看页（静态页，密钥仅存在于 URL fragment）
  */
+
+import { handleSecretRoutes } from './secret.js';
 
 const ALLOWED_UPSTREAM = 'aip.baidubce.com';
 // 端点白名单：路径 + 上游 method（用 path 不带 query 匹配）
@@ -475,8 +479,10 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
 
-    // CORS 预检
+    // CORS 预检（私密分享需放行 X-Manage-Token，故优先交由其自身处理）
     if (request.method === 'OPTIONS') {
+      const preflight = await handleSecretRoutes(request, env, url.pathname);
+      if (preflight) return preflight;
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
 
@@ -489,6 +495,22 @@ export default {
     if (url.pathname.startsWith('/api/baidu/')) {
       const sub = url.pathname.slice('/api/baidu'.length);
       return handleBaidu(request, sub);
+    }
+
+    // 私密分享 API（端到端加密，仅存密文）
+    const secretResp = await handleSecretRoutes(request, env, url.pathname);
+    if (secretResp) return secretResp;
+
+    // 私密内容查看页：/s/<id> → 复用静态查看页
+    // 解密密钥只存在于 URL fragment（# 之后），浏览器不会将其发往服务端
+    const secretPage = url.pathname.match(/^\/s\/([A-Za-z0-9_-]{16,32})\/?$/);
+    if (secretPage) {
+      const pageUrl = new URL('/tools/secret/s.html', url);
+      // 只透传 Range，避免把客户端请求头原样带入子请求
+      const fwdHeaders = new Headers();
+      const range = request.headers.get('range');
+      if (range) fwdHeaders.set('range', range);
+      return env.ASSETS.fetch(new Request(pageUrl, { method: request.method, headers: fwdHeaders }));
     }
 
     // 静态资源（其余所有路径）

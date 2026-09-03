@@ -13,5 +13,12 @@
   "assets": {
     "directory": "./public",
     "binding": "ASSETS"
-  }
+  },
+  // 私密内容分享：仅存储密文 / salt / iv，密钥永不上行
+  "kv_namespaces": [
+    {
+      "binding": "SECRETS",
+      "id": "15026c920b0e420e9e0409eff6005400"
+    }
+  ]
 }
