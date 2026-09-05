@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>哈希计算 - Web IT Tool Box</title>
+  <meta name="description" content="在线计算文本哈希：MD5、SHA-1、SHA-256、SHA-384、SHA-512，全部在浏览器本地完成，支持大写切换与一键复制。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧮</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / 哈希计算</div>
+      <h1><span class="icon-tile cat-dev">#</span>哈希计算</h1>
+      <p class="sub">MD5 / SHA 系列摘要计算，输入即时出结果，全部在浏览器本地完成。</p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>输入文本</div>
+      <textarea id="hashInput" class="json-input" placeholder="输入要计算哈希的文本…" spellcheck="false"></textarea>
+      <div class="unit-switch">
+        <label class="radio-label"><input type="checkbox" id="hashUpper"> 大写输出</label>
+        <span class="hint" style="margin:0 0 0 12px;">UTF-8 编码计算</span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>计算结果</div>
+      <div class="result-list">
+        <div class="result-row">
+          <span class="r-label">MD5</span>
+          <span class="r-value" id="rMd5">—</span>
+          <button class="copy-btn" data-copy-target="rMd5">复制</button>
+        </div>
+        <div class="result-row">
+          <span class="r-label">SHA-1</span>
+          <span class="r-value" id="rSha1">—</span>
+          <button class="copy-btn" data-copy-target="rSha1">复制</button>
+        </div>
+        <div class="result-row">
+          <span class="r-label">SHA-256</span>
+          <span class="r-value" id="rSha256">—</span>
+          <button class="copy-btn" data-copy-target="rSha256">复制</button>
+        </div>
+        <div class="result-row">
+          <span class="r-label">SHA-384</span>
+          <span class="r-value" id="rSha384">—</span>
+          <button class="copy-btn" data-copy-target="rSha384">复制</button>
+        </div>
+        <div class="result-row">
+          <span class="r-label">SHA-512</span>
+          <span class="r-value" id="rSha512">—</span>
+          <button class="copy-btn" data-copy-target="rSha512">复制</button>
+        </div>
+      </div>
+      <p class="hint" id="hashHint">提示：MD5 / SHA-1 已不推荐用于安全场景，建议使用 SHA-256 及以上。</p>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.copy-btn');
+      if (!btn) return;
+      const text = $(btn.dataset.copyTarget)?.textContent ?? '';
+      if (!text || text === '—') return;
+      try {
+        await navigator.clipboard.writeText(text);
+        toast('已复制到剪贴板');
+      } catch {
+        toast('复制失败，请手动选择复制');
+      }
+      btn.classList.add('copied');
+      setTimeout(() => btn.classList.remove('copied'), 1200);
+    });
+
+    /* ---------- MD5（纯 JS 实现，Web Crypto 不支持 MD5） ---------- */
+    function rotl(n, c) { return (n << c) | (n >>> (32 - c)); }
+
+    function md5Hex(msgBytes) {
+      const S = [7,12,17,22, 7,12,17,22, 7,12,17,22, 7,12,17,22,
+                 5,9,14,20, 5,9,14,20, 5,9,14,20, 5,9,14,20,
+                 4,11,16,23, 4,11,16,23, 4,11,16,23, 4,11,16,23,
+                 6,10,15,21, 6,10,15,21, 6,10,15,21, 6,10,15,21];
+      const K = new Int32Array(64);
+      for (let i = 0; i < 64; i++) K[i] = Math.floor(Math.abs(Math.sin(i + 1)) * 4294967296) | 0;
+
+      const len = msgBytes.length;
+      const padded = new Uint8Array((((len + 8) >> 6) + 1) * 64);
+      padded.set(msgBytes);
+      padded[len] = 0x80;
+      const dv = new DataView(padded.buffer);
+      const bitLen = len * 8;
+      dv.setUint32(padded.length - 8, bitLen >>> 0, true);
+      dv.setUint32(padded.length - 4, Math.floor(bitLen / 4294967296), true);
+
+      let a0 = 0x67452301, b0 = 0xefcdab89, c0 = 0x98badcfe, d0 = 0x10325476;
+      for (let chunk = 0; chunk < padded.length; chunk += 64) {
+        const M = new Int32Array(16);
+        for (let j = 0; j < 16; j++) M[j] = dv.getInt32(chunk + j * 4, true);
+        let A = a0, B = b0, C = c0, D = d0;
+        for (let i = 0; i < 64; i++) {
+          let F, g;
+          if (i < 16)      { F = (B & C) | (~B & D);      g = i; }
+          else if (i < 32) { F = (D & B) | (~D & C);      g = (5 * i + 1) % 16; }
+          else if (i < 48) { F = B ^ C ^ D;               g = (3 * i + 5) % 16; }
+          else             { F = C ^ (B | ~D);            g = (7 * i) % 16; }
+          F = (F + A + K[i] + M[g]) | 0;
+          A = D; D = C; C = B;
+          B = (B + rotl(F, S[i])) | 0;
+        }
+        a0 = (a0 + A) | 0; b0 = (b0 + B) | 0; c0 = (c0 + C) | 0; d0 = (d0 + D) | 0;
+      }
+      const out = new DataView(new ArrayBuffer(16));
+      out.setInt32(0, a0, true); out.setInt32(4, b0, true);
+      out.setInt32(8, c0, true); out.setInt32(12, d0, true);
+      return Array.from(new Uint8Array(out.buffer), b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    /* ---------- SHA 系列（Web Crypto） ---------- */
+    async function shaHex(algo, bytes) {
+      const buf = await crypto.subtle.digest(algo, bytes);
+      return Array.from(new Uint8Array(buf), b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    /* ---------- 汇总计算 ---------- */
+    const outIds = ['rMd5', 'rSha1', 'rSha256', 'rSha384', 'rSha512'];
+    let seq = 0;
+
+    async function computeHash() {
+      const text = $('hashInput').value;
+      const upper = $('hashUpper').checked;
+      const mySeq = ++seq;
+      const results = { rMd5: md5Hex(new TextEncoder().encode(text)) };
+      const algos = { rSha1: 'SHA-1', rSha256: 'SHA-256', rSha384: 'SHA-384', rSha512: 'SHA-512' };
+      await Promise.all(Object.entries(algos).map(async ([id, algo]) => {
+        results[id] = await shaHex(algo, new TextEncoder().encode(text));
+      }));
+      if (mySeq !== seq) return; // 输入已变化，丢弃过期结果
+      outIds.forEach(id => {
+        $(id).textContent = upper ? results[id].toUpperCase() : results[id];
+      });
+    }
+
+    $('hashInput').addEventListener('input', computeHash);
+    $('hashUpper').addEventListener('change', computeHash);
+  </script>
+</body>
+</html>

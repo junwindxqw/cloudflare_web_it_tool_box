@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JSON 转 TypeScript 类型 - Web IT Tool Box</title>
+  <meta name="description" content="在线 JSON 转 TypeScript 类型定义：自动推断嵌套接口、数组合并字段（缺失字段标记可选），一键复制，全部本地完成。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔷</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / JSON 转 TypeScript</div>
+      <h1><span class="icon-tile cat-qa">🔷</span>JSON 转 TypeScript 类型</h1>
+      <p class="sub">粘贴 JSON 自动生成 TypeScript interface，嵌套对象生成嵌套接口，数组对象合并字段（缺失标记为可选）。</p>
+    </div>
+
+    <section class="panel">
+      <div class="io-grid">
+        <div>
+          <div class="io-label"><span>JSON 输入</span></div>
+          <textarea id="jtsIn" class="json-input" style="min-height:300px;" placeholder='{"name": "demo", "count": 1, "tags": ["a", "b"]}' spellcheck="false"></textarea>
+          <p class="hint" id="jtsHint"></p>
+        </div>
+        <div>
+          <div class="io-label"><span>TypeScript 类型</span><button class="copy-btn" data-copy-input="jtsOut">复制</button></div>
+          <textarea id="jtsOut" class="json-input" style="min-height:300px;" readonly spellcheck="false"></textarea>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.copy-btn');
+      if (!btn) return;
+      const src = $(btn.dataset.copyInput);
+      const text = src ? src.value : '';
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        toast('已复制到剪贴板');
+      } catch {
+        toast('复制失败，请手动选择复制');
+      }
+      btn.classList.add('copied');
+      setTimeout(() => btn.classList.remove('copied'), 1200);
+    });
+
+    /* ---------- TS 类型推断 ---------- */
+    function pascal(s) {
+      const cleaned = String(s).replace(/[^a-zA-Z0-9\u4e00-\u9fa5]+/g, ' ').trim();
+      if (!cleaned) return 'Item';
+      // 仅用 ASCII 部分，中文按长度命名
+      const ascii = cleaned.replace(/[\u4e00-\u9fa5]/g, '').trim();
+      if (!ascii) return 'Zh' + cleaned.length;
+      return ascii.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join('');
+    }
+
+    function needsQuotes(key) {
+      return !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key);
+    }
+
+    function tsKey(key) {
+      return needsQuotes(key) ? JSON.stringify(key) : key;
+    }
+
+    function convert(json, rootName) {
+      const interfaces = []; // { name, body }
+      const nameCount = new Map();
+
+      function uniqueName(base) {
+        const n = nameCount.get(base) || 0;
+        nameCount.set(base, n + 1);
+        return n === 0 ? base : base + (n + 1);
+      }
+
+      function infer(value, hint) {
+        if (value === null) return 'null';
+        if (Array.isArray(value)) {
+          if (!value.length) return 'unknown[]';
+          const objects = value.filter(v => typeof v === 'object' && v !== null && !Array.isArray(v));
+          if (objects.length === value.length) {
+            // 全是对象：合并字段，缺失标记可选
+            return inferObjectArray(value, singular(hint)) + '[]';
+          }
+          const types = [...new Set(value.map(v => inferSimple(v, singular(hint))))];
+          if (types.length === 1) return types[0] + '[]';
+          return '(' + types.join(' | ') + ')[]';
+        }
+        if (typeof value === 'object') {
+          const name = uniqueName(pascal(hint) || 'Item');
+          const keys = Object.keys(value);
+          // 合并数组场景由调用方处理：这里收集每键类型
+          const lines = keys.map(k => `  ${tsKey(k)}: ${infer(value[k], k)};`);
+          interfaces.push({ name, body: lines.join('\n') });
+          return name;
+        }
+        if (typeof value === 'number') return Number.isInteger(value) ? 'number' : 'number';
+        if (typeof value === 'boolean') return 'boolean';
+        return 'string';
+      }
+
+      // 对象数组：合并所有元素的字段，缺失标记可选
+      function inferObjectArray(arr, hint) {
+        const name = uniqueName(pascal(hint) || 'Item');
+        const keyTypes = new Map(); // key -> Set<type>
+        arr.forEach(item => {
+          if (typeof item !== 'object' || item === null || Array.isArray(item)) return;
+          Object.keys(item).forEach(k => {
+            if (!keyTypes.has(k)) keyTypes.set(k, new Set());
+            const t = inferSimple(item[k], k);
+            keyTypes.get(k).add(t);
+          });
+        });
+        const lines = [...keyTypes.entries()].map(([k, set]) => {
+          const types = [...set];
+          const union = types.length === 1 ? types[0] : types.join(' | ');
+          // 缺失的字段标记可选
+          const missing = arr.some(item => typeof item !== 'object' || item === null || !(k in item));
+          return `  ${tsKey(k)}${missing ? '?' : ''}: ${union};`;
+        });
+        interfaces.push({ name, body: lines.join('\n') });
+        return name;
+      }
+
+      // 简单类型（嵌套对象仍走 infer；数组对象在这里合并）
+      function inferSimple(value, hint) {
+        if (Array.isArray(value)) {
+          const objects = value.filter(v => typeof v === 'object' && v !== null && !Array.isArray(v));
+          if (objects.length && objects.length === value.length) {
+            return inferObjectArray(value, singular(hint)) + '[]';
+          }
+          return infer(value, hint);
+        }
+        return infer(value, hint);
+      }
+
+      function singular(name) {
+        return /ies$/.test(name) ? name.replace(/ies$/, 'y') : /s$/.test(name) && !/ss$/.test(name) ? name.slice(0, -1) : name;
+      }
+
+      const rootType = inferSimple(json, rootName);
+      let out = '';
+      // 接口体可能引用尚未生成的接口，按生成顺序输出即可（TS 支持前向引用）
+      [...interfaces].reverse().forEach(itf => {
+        out += `interface ${itf.name} {\n${itf.body || '  [key: string]: unknown;'}\n}\n\n`;
+      });
+      out += `declare const data: ${rootType};`;
+      return out;
+    }
+
+    let timer = null;
+    $('jtsIn').addEventListener('input', () => {
+      clearTimeout(timer);
+      timer = setTimeout(convertNow, 250);
+    });
+
+    function convertNow() {
+      const text = $('jtsIn').value.trim();
+      const hint = $('jtsHint');
+      if (!text) { $('jtsOut').value = ''; hint.textContent = ''; return; }
+      try {
+        const json = JSON.parse(text);
+        $('jtsOut').value = convert(json, 'Root');
+        hint.classList.remove('err');
+        hint.textContent = '转换成功。';
+      } catch (e) {
+        $('jtsOut').value = '';
+        hint.textContent = 'JSON 解析失败：' + (e.message || e);
+        hint.classList.add('err');
+      }
+    }
+
+    $('jtsIn').value = JSON.stringify({
+      id: 42,
+      name: '示例用户',
+      active: true,
+      tags: ['admin', 'editor'],
+      profile: { city: '北京', verified: true, age: 25 },
+      orders: [
+        { orderId: 'A001', amount: 99.5, note: '备注一' },
+        { orderId: 'A002', amount: 59.9 },
+      ],
+    }, null, 2);
+    convertNow();
+  </script>
+</body>
+</html>

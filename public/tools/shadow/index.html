@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CSS 盒阴影生成 - Web IT Tool Box</title>
+  <meta name="description" content="在线 CSS box-shadow 生成器：偏移、模糊、扩散、颜色与内阴影可视化调节，实时预览并复制代码。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔳</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <style>
+    .shadow-stage {
+      display: grid;
+      place-items: center;
+      padding: 46px 20px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background:
+        conic-gradient(var(--surface-2) 0 25%, transparent 0 50%, var(--surface-2) 0 75%, transparent 0) 0 0/24px 24px,
+        var(--surface);
+    }
+    .shadow-box {
+      width: 150px;
+      height: 96px;
+      background: var(--accent);
+      border-radius: 10px;
+    }
+  </style>
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / CSS 盒阴影生成</div>
+      <h1><span class="icon-tile cat-design">🔳</span>CSS 盒阴影生成</h1>
+      <p class="sub">可视化调节 box-shadow 各参数，实时预览并复制 CSS 代码。</p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>预览</div>
+      <div class="shadow-stage">
+        <div class="shadow-box" id="shadowBox"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>参数</div>
+
+      <div class="range-row">
+        <label for="shX">X 偏移</label>
+        <input type="range" id="shX" min="-50" max="50" value="0">
+        <span class="range-val" id="shXVal">0px</span>
+      </div>
+      <div class="range-row" style="margin-top:10px;">
+        <label for="shY">Y 偏移</label>
+        <input type="range" id="shY" min="-50" max="50" value="10">
+        <span class="range-val" id="shYVal">10px</span>
+      </div>
+      <div class="range-row" style="margin-top:10px;">
+        <label for="shBlur">模糊</label>
+        <input type="range" id="shBlur" min="0" max="100" value="24">
+        <span class="range-val" id="shBlurVal">24px</span>
+      </div>
+      <div class="range-row" style="margin-top:10px;">
+        <label for="shSpread">扩散</label>
+        <input type="range" id="shSpread" min="-30" max="50" value="0">
+        <span class="range-val" id="shSpreadVal">0px</span>
+      </div>
+      <div class="range-row" style="margin-top:10px;">
+        <label for="shRadius">圆角</label>
+        <input type="range" id="shRadius" min="0" max="50" value="10">
+        <span class="range-val" id="shRadiusVal">10px</span>
+      </div>
+
+      <div class="unit-switch" style="margin-top:14px;">
+        <input type="color" id="shColor" value="#2563eb" style="width:52px;height:34px;padding:2px;cursor:pointer;">
+        <div class="range-row" style="flex:1;">
+          <label for="shAlpha">透明度</label>
+          <input type="range" id="shAlpha" min="0" max="100" value="45">
+          <span class="range-val" id="shAlphaVal">45%</span>
+        </div>
+        <label class="radio-label"><input type="checkbox" id="shInset"> 内阴影 inset</label>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>CSS 代码 <button class="copy-btn" data-copy-input="shCss" style="margin-left:auto;">复制</button></div>
+      <div class="json-output" id="shCss" style="min-height:auto;max-height:160px;"></div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.copy-btn');
+      if (!btn) return;
+      const src = $(btn.dataset.copyInput);
+      const text = src ? src.textContent : '';
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        toast('已复制到剪贴板');
+      } catch {
+        toast('复制失败，请手动选择复制');
+      }
+      btn.classList.add('copied');
+      setTimeout(() => btn.classList.remove('copied'), 1200);
+    });
+
+    function hexToRgb(hex) {
+      const n = parseInt(hex.slice(1), 16);
+      return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    }
+
+    function buildCss() {
+      const x = $('shX').value, y = $('shY').value;
+      const blur = $('shBlur').value, spread = $('shSpread').value;
+      const [r, g, b] = hexToRgb($('shColor').value);
+      const a = Number($('shAlpha').value) / 100;
+      const inset = $('shInset').checked ? 'inset ' : '';
+      const shadow = `${inset}${x}px ${y}px ${blur}px ${spread}px rgba(${r}, ${g}, ${b}, ${a})`;
+      const radius = $('shRadius').value;
+      return `border-radius: ${radius}px;\nbox-shadow: ${shadow};`;
+    }
+
+    function render() {
+      const css = buildCss();
+      const decls = Object.fromEntries(css.split('\n').map(l => {
+        const i = l.indexOf(':');
+        return [l.slice(0, i).trim(), l.slice(i + 1).replace(/;$/, '').trim()];
+      }));
+      const box = $('shadowBox');
+      box.style.cssText =
+        `width:150px;height:96px;background:var(--accent);` +
+        `border-radius:${decls['border-radius']};box-shadow:${decls['box-shadow']};`;
+      $('shCss').textContent = css;
+
+      $('shXVal').textContent = $('shX').value + 'px';
+      $('shYVal').textContent = $('shY').value + 'px';
+      $('shBlurVal').textContent = $('shBlur').value + 'px';
+      $('shSpreadVal').textContent = $('shSpread').value + 'px';
+      $('shRadiusVal').textContent = $('shRadius').value + 'px';
+      $('shAlphaVal').textContent = $('shAlpha').value + '%';
+    }
+
+    ['shX', 'shY', 'shBlur', 'shSpread', 'shRadius', 'shAlpha', 'shColor'].forEach(id =>
+      $(id).addEventListener('input', render));
+    $('shInset').addEventListener('change', render);
+
+    render();
+  </script>
+</body>
+</html>

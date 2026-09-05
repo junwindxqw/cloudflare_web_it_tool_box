@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>假文生成 Lorem Ipsum - Web IT Tool Box</title>
+  <meta name="description" content="在线 Lorem Ipsum 假文生成器：可生成拉丁乱数假文或中文假文，自定义段落数与每段句数，一键复制。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📄</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / 假文生成</div>
+      <h1><span class="icon-tile cat-qa">📄</span>假文生成 Lorem Ipsum</h1>
+      <p class="sub">生成占位假文用于排版测试，支持拉丁经典款与中文假文，全部本地生成。</p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>选项</div>
+      <div class="unit-switch">
+        <span class="field-label" style="margin:0;">语言：</span>
+        <label class="radio-label"><input type="radio" name="loremLang" value="latin" checked> 拉丁（Lorem ipsum）</label>
+        <label class="radio-label"><input type="radio" name="loremLang" value="zh"> 中文假文</label>
+      </div>
+      <div class="range-row" style="margin-top:12px;">
+        <label for="loremPara">段落数</label>
+        <input type="range" id="loremPara" min="1" max="20" value="3">
+        <span class="range-val" id="loremParaVal">3 段</span>
+      </div>
+      <div class="range-row" style="margin-top:10px;">
+        <label for="loremSent">每段句数</label>
+        <input type="range" id="loremSent" min="1" max="12" value="4">
+        <span class="range-val" id="loremSentVal">4 句</span>
+      </div>
+      <div class="unit-switch">
+        <label class="radio-label"><input type="checkbox" id="loremClassic" checked> 首段以「Lorem ipsum dolor sit amet」开头</label>
+      </div>
+      <div class="btn-row">
+        <button class="btn primary" id="btnLoremGen">🎲 重新生成</button>
+        <button class="btn" id="btnLoremCopy">📋 复制</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>结果 <span class="stat-bar" style="margin:0;" id="loremStats"></span></div>
+      <div class="json-output" id="loremOut" style="white-space:normal;min-height:200px;max-height:480px;overflow:auto;"></div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    /* ---------- 拉丁词库（经典 Lorem Ipsum 词汇） ---------- */
+    const LATIN = ('lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua enim ad minim veniam quis nostrud exercitation ullamco laboris nisi aliquip ex ea commodo consequat duis aute irure in reprehenderit voluptate velit esse cillum eu fugiat nulla pariatur excepteur sint occaecat cupidatat non proident sunt culpa qui officia deserunt mollit anim id est laborum').split(' ');
+    const ZH_CHARS = '云山雾水风花雪月天地玄黄宇宙洪荒日月盈昃辰宿列张寒来暑往秋收冬藏闰余成岁律吕调阳金生丽水玉出昆冈剑号巨阙珠称夜光果珍李柰菜重芥姜海咸河淡鳞潜羽翔龙师火帝鸟官人皇始制文字乃服衣裳推位让国有虞陶唐吊民伐罪周发殷汤坐朝问道垂拱平章'.split('');
+
+    const randInt = (min, max) => min + Math.floor(Math.random() * (max - min + 1));
+    const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+    function latinSentence(minWords, maxWords) {
+      const n = randInt(minWords, maxWords);
+      const words = [];
+      for (let i = 0; i < n; i++) words.push(pick(LATIN));
+      const s = words.join(' ');
+      return s.charAt(0).toUpperCase() + s.slice(1) + '.';
+    }
+
+    function zhSentence(minChars, maxChars) {
+      const n = randInt(minChars, maxChars);
+      let s = '';
+      for (let i = 0; i < n; i++) s += pick(ZH_CHARS);
+      return s;
+    }
+
+    function generate() {
+      const paras = Number($('loremPara').value);
+      const sents = Number($('loremSent').value);
+      const lang = document.querySelector('input[name="loremLang"]:checked').value;
+      const classic = $('loremClassic').checked;
+      const out = [];
+
+      for (let p = 0; p < paras; p++) {
+        const sentences = [];
+        const count = p === 0 && classic ? Math.max(1, sents - 1) : sents;
+        for (let i = 0; i < count; i++) {
+          sentences.push(lang === 'latin' ? latinSentence(8, 16) : zhSentence(12, 28));
+        }
+        let para = sentences.join(lang === 'latin' ? ' ' : '');
+        if (p === 0 && classic) {
+          const head = lang === 'latin'
+            ? 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. '
+            : '山不在高，有仙则名。';
+          para = head + para;
+        }
+        out.push(para);
+      }
+
+      const text = out.join(lang === 'latin' ? '\n\n' : '\n\n');
+      $('loremOut').textContent = text;
+      const zhCount = (text.match(/[\u4e00-\u9fff]/g) || []).length;
+      $('loremStats').innerHTML = `<span>${paras} 段</span><span>${text.length} 字符</span>` +
+        (zhCount ? `<span>${zhCount} 汉字</span>` : '');
+    }
+
+    document.querySelectorAll('input[name="loremLang"]').forEach(r => r.addEventListener('change', () => {
+      $('loremClassic').disabled = false;
+      generate();
+    }));
+    ['loremPara', 'loremSent'].forEach(id => $(id).addEventListener('input', () => {
+      $('loremParaVal').textContent = $('loremPara').value + ' 段';
+      $('loremSentVal').textContent = $('loremSent').value + ' 句';
+      generate();
+    }));
+    $('loremClassic').addEventListener('change', generate);
+    $('btnLoremGen').addEventListener('click', generate);
+    $('btnLoremCopy').addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText($('loremOut').textContent);
+        toast('已复制到剪贴板');
+      } catch { toast('复制失败，请手动选择复制'); }
+    });
+
+    generate();
+  </script>
+</body>
+</html>

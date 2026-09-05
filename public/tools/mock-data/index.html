@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>测试数据生成 - Web IT Tool Box</title>
+  <meta name="description" content="在线批量生成测试数据：中文姓名、手机号、邮箱、城市、年龄等字段组合，支持 JSON / CSV 导出，全部本地随机生成。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎭</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / 测试数据生成</div>
+      <h1><span class="icon-tile cat-qa">🎭</span>测试数据生成</h1>
+      <p class="sub">批量生成随机中文姓名、手机号、邮箱等假数据，用于开发与测试填充，全部本地随机生成。</p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>生成选项</div>
+      <div class="range-row">
+        <label for="mockCount">条数</label>
+        <input type="range" id="mockCount" min="1" max="100" value="10">
+        <span class="range-val" id="mockCountVal">10 条</span>
+      </div>
+      <div class="unit-switch">
+        <label class="radio-label"><input type="checkbox" id="fName" checked> 姓名</label>
+        <label class="radio-label"><input type="checkbox" id="fGender" checked> 性别</label>
+        <label class="radio-label"><input type="checkbox" id="fAge" checked> 年龄</label>
+        <label class="radio-label"><input type="checkbox" id="fPhone" checked> 手机号</label>
+        <label class="radio-label"><input type="checkbox" id="fEmail" checked> 邮箱</label>
+        <label class="radio-label"><input type="checkbox" id="fCity" checked> 城市</label>
+        <label class="radio-label"><input type="checkbox" id="fCompany"> 公司</label>
+      </div>
+      <div class="btn-row">
+        <button class="btn primary" id="btnMockGen">🎲 重新生成</button>
+        <button class="btn" id="btnMockJson">复制 JSON</button>
+        <button class="btn" id="btnMockCsv">复制 CSV</button>
+      </div>
+      <p class="hint">所有数据均为随机拼凑的虚构数据，不含真实个人信息；手机号为合法号段的假号码。</p>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>预览</div>
+      <div style="overflow-x:auto;">
+        <table class="char-table" id="mockTable"></table>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    /* ---------- 随机工具 ---------- */
+    const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+    const randInt = (min, max) => min + Math.floor(Math.random() * (max - min + 1));
+
+    /* ---------- 数据池 ---------- */
+    const SURNAMES = '王李张刘陈杨黄赵吴周徐孙马朱胡郭何林罗高郑梁谢宋唐许韩冯邓曹彭曾萧田董潘袁蔡蒋余于杜叶程魏苏吕丁任卢姚沈钟姜崔谭陆范汪廖石金韦贾夏付方邹熊白孟秦邱侯江尹薛闫段雷龙黎史陶贺毛郝顾龚邵万钱严覃武戴莫孔向汤'.split('');
+    const GIVEN1 = '伟芳娜秀英敏静丽强磊军洋勇艳杰娟涛明超霞平刚桂英华玉梅红建国志文心怡欣宇泽涵梓萱思远晨曦雨桐浩然子轩若汐梦琪博文天佑'.split('');
+    const GIVEN2 = '芳娜敏静丽艳娟霞平英华梅红杰军洋勇强磊涛明超晨怡欣宇泽涵萱琪轩博文佑然曦桐雨'.split('');
+    const CITIES = ['北京', '上海', '广州', '深圳', '杭州', '成都', '武汉', '南京', '西安', '重庆', '苏州', '长沙', '郑州', '青岛', '合肥', '福州', '厦门', '济南', '大连', '宁波'];
+    const PHONE_PREFIX = ['130', '131', '132', '133', '135', '136', '137', '138', '139', '150', '151', '152', '155', '156', '157', '158', '159', '166', '170', '176', '177', '178', '180', '181', '182', '185', '186', '187', '188', '189', '191', '198', '199'];
+    const COMPANY_WORDS = ['科技', '网络', '信息', '数据', '智能', '云', '软件', '数码', '传媒', '生物'];
+    const COMPANY_SUFFIX = ['有限公司', '股份有限公司', '科技有限公司', '信息技术有限公司'];
+    const COMPANY_HEAD = ['华宇', '星辰', '云图', '宏远', '智联', '博创', '天工', '蓝海', '锐点', '万象', '青云', '知行', '光速', '磐石', '启明'];
+
+    function genName() {
+      const g = Math.random() < 0.5;
+      const given = Math.random() < 0.7 ? pick(GIVEN1) : pick(GIVEN1) + pick(GIVEN2);
+      return { name: pick(SURNAMES) + given, gender: g ? '男' : '女' };
+    }
+
+    function genPhone() {
+      let p = pick(PHONE_PREFIX);
+      for (let i = 0; i < 8; i++) p += randInt(0, 9);
+      return p;
+    }
+
+    function pinyinOf(name) {
+      // 简易伪拼音：用姓名字符构造邮箱前缀（并非真实拼音）
+      return 'user' + randInt(1000, 9999) + name.slice(-1).charCodeAt(0).toString(36);
+    }
+
+    function genRow() {
+      const row = {};
+      const enabled = (id) => $(id).checked;
+      const { name, gender } = genName();
+      if (enabled('fName')) row['姓名'] = name;
+      if (enabled('fGender')) row['性别'] = gender;
+      if (enabled('fAge')) row['年龄'] = randInt(18, 60);
+      if (enabled('fPhone')) row['手机号'] = genPhone();
+      if (enabled('fEmail')) row['邮箱'] = pinyinOf(name) + '@' + pick(['example.com', 'test.dev', 'mail.example.org', 'demo.cn']);
+      if (enabled('fCity')) row['城市'] = pick(CITIES);
+      if (enabled('fCompany')) row['公司'] = pick(COMPANY_HEAD) + pick(COMPANY_WORDS) + pick(COMPANY_SUFFIX);
+      return row;
+    }
+
+    let lastRows = [];
+
+    function generate() {
+      const n = Number($('mockCount').value);
+      lastRows = [];
+      for (let i = 0; i < n; i++) lastRows.push(genRow());
+
+      const table = $('mockTable');
+      table.innerHTML = '';
+      if (!lastRows.length) {
+        table.innerHTML = '<tr><td>请至少选择一个字段</td></tr>';
+        return;
+      }
+      const keys = Object.keys(lastRows[0]);
+      const thead = document.createElement('thead');
+      thead.innerHTML = '<tr>' + keys.map(k => `<th>${k}</th>`).join('') + '</tr>';
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      lastRows.forEach(r => {
+        tbody.innerHTML += '<tr>' + keys.map(k => `<td>${r[k]}</td>`).join('') + '</tr>';
+      });
+      table.appendChild(tbody);
+    }
+
+    function toJSON() {
+      return JSON.stringify(lastRows, null, 2);
+    }
+
+    function toCSV() {
+      if (!lastRows.length) return '';
+      const keys = Object.keys(lastRows[0]);
+      const esc = (v) => /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v);
+      return [keys.join(','), ...lastRows.map(r => keys.map(k => esc(r[k])).join(','))].join('\n');
+    }
+
+    async function copyText(text, label) {
+      try {
+        await navigator.clipboard.writeText(text);
+        toast(label);
+      } catch { toast('复制失败，请手动选择复制'); }
+    }
+
+    $('mockCount').addEventListener('input', () => {
+      $('mockCountVal').textContent = $('mockCount').value + ' 条';
+      generate();
+    });
+    document.querySelectorAll('.unit-switch input[type="checkbox"]').forEach(c => c.addEventListener('change', generate));
+    $('btnMockGen').addEventListener('click', generate);
+    $('btnMockJson').addEventListener('click', () => copyText(toJSON(), '已复制 JSON'));
+    $('btnMockCsv').addEventListener('click', () => copyText(toCSV(), '已复制 CSV'));
+
+    generate();
+  </script>
+</body>
+</html>

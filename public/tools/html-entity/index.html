@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HTML 实体编解码 - Web IT Tool Box</title>
+  <meta name="description" content="HTML 实体（HTML Entities）在线编码与解码：&amp; &lt; &gt; 引号转义、数字实体 &#x1F600; 与命名实体互转，全部本地完成。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔣</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / HTML 实体编解码</div>
+      <h1><span class="icon-tile cat-dev">&amp;;</span>HTML 实体编解码</h1>
+      <p class="sub">HTML 转义字符与实体编码互转，支持命名实体与 &amp;#x…; 数字实体。</p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>方向</div>
+      <div class="seg" id="heSeg">
+        <button type="button" data-mode="encode" class="active">编码（文本 → 实体）</button>
+        <button type="button" data-mode="decode">解码（实体 → 文本）</button>
+      </div>
+      <div class="unit-switch" id="encOptions">
+        <span class="field-label" style="margin:0;">范围：</span>
+        <label class="radio-label"><input type="radio" name="encScope" value="basic" checked> 仅保留字符（&amp; &lt; &gt; " '）</label>
+        <label class="radio-label"><input type="radio" name="encScope" value="all"> 所有非 ASCII 字符也转数字实体</label>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="io-grid">
+        <div>
+          <div class="io-label"><span id="heInputLabel">原文</span><button class="btn btn-sm" id="btnHeSwap">⇅ 交换</button></div>
+          <textarea id="heInput" class="json-input" style="min-height:200px;" placeholder="输入内容…" spellcheck="false"></textarea>
+        </div>
+        <div>
+          <div class="io-label"><span id="heOutputLabel">实体结果</span><button class="copy-btn" data-copy-input="heOutput">复制</button></div>
+          <textarea id="heOutput" class="json-input" style="min-height:200px;" readonly placeholder="结果…" spellcheck="false"></textarea>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.copy-btn');
+      if (!btn) return;
+      const src = $(btn.dataset.copyInput);
+      const text = src ? src.value : '';
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        toast('已复制到剪贴板');
+      } catch {
+        toast('复制失败，请手动选择复制');
+      }
+      btn.classList.add('copied');
+      setTimeout(() => btn.classList.remove('copied'), 1200);
+    });
+
+    let mode = 'encode';
+
+    /* ---------- 编码 ---------- */
+    const BASIC_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+
+    function encodeEntities(text, scope) {
+      if (scope === 'all') {
+        let out = '';
+        for (const ch of text) {
+          if (ch in BASIC_MAP) out += BASIC_MAP[ch];
+          else if (ch.charCodeAt(0) > 127) out += '&#x' + ch.codePointAt(0).toString(16) + ';';
+          else out += ch;
+        }
+        return out;
+      }
+      return text.replace(/[&<>"']/g, ch => BASIC_MAP[ch]);
+    }
+
+    /* ---------- 解码（DOMParser 不执行脚本，安全） ---------- */
+    function decodeEntities(text) {
+      const doc = new DOMParser().parseFromString(text, 'text/html');
+      return doc.documentElement.textContent;
+    }
+
+    function convert() {
+      const input = $('heInput').value;
+      let out;
+      try {
+        out = mode === 'encode'
+          ? encodeEntities(input, document.querySelector('input[name="encScope"]:checked').value)
+          : decodeEntities(input);
+        $('heOutput').classList.remove('err');
+      } catch (e) {
+        out = '解码失败：' + (e && e.message ? e.message : e);
+      }
+      $('heOutput').value = out;
+    }
+
+    $('heSeg').addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      mode = btn.dataset.mode;
+      $('heSeg').querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
+      $('encOptions').style.display = mode === 'encode' ? '' : 'none';
+      $('heInputLabel').textContent = mode === 'encode' ? '原文' : '实体文本';
+      $('heOutputLabel').textContent = mode === 'encode' ? '实体结果' : '解码结果';
+      convert();
+    });
+
+    document.querySelectorAll('input[name="encScope"]').forEach(r => r.addEventListener('change', convert));
+    $('heInput').addEventListener('input', convert);
+
+    // 用当前输出反填输入，快速互转
+    $('btnHeSwap').addEventListener('click', () => {
+      $('heInput').value = $('heOutput').value;
+      const btns = $('heSeg').querySelectorAll('button');
+      (mode === 'encode' ? btns[1] : btns[0]).click();
+    });
+  </script>
+</body>
+</html>

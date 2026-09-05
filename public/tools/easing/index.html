@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CSS 缓动曲线预览 - Web IT Tool Box</title>
+  <meta name="description" content="CSS cubic-bezier 缓动曲线在线预览：内置常用缓动预设，可视化曲线与动画演示，一键复制 CSS 代码。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <style>
+    .ease-stage {
+      display: flex;
+      gap: 18px;
+      align-items: stretch;
+    }
+    .ease-curve { flex: 1; min-width: 0; }
+    .ease-demo {
+      width: 132px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      align-items: center;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px 0;
+    }
+    .ease-ball {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+    .ease-track {
+      width: 56px;
+      height: calc(100% - 34px);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .preset-chip { white-space: nowrap; }
+  </style>
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / CSS 缓动曲线预览</div>
+      <h1><span class="icon-tile cat-design">📈</span>CSS 缓动曲线预览</h1>
+      <p class="sub">可视化 cubic-bezier 缓动曲线，配合小球动画直观感受节奏，一键复制 CSS。</p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>预设</div>
+      <div class="chips" id="easePresets"></div>
+
+      <div class="unit-switch">
+        <span class="field-label" style="margin:0;">cubic-bezier(</span>
+        <input type="number" id="ezX1" value="0.25" min="0" max="1" step="0.01" style="width:84px;">
+        <input type="number" id="ezY1" value="0.1" min="-1" max="2" step="0.01" style="width:84px;">
+        <span class="field-label" style="margin:0;">,</span>
+        <input type="number" id="ezX2" value="0.25" min="0" max="1" step="0.01" style="width:84px;">
+        <input type="number" id="ezY2" value="1" min="-1" max="2" step="0.01" style="width:84px;">
+        <span class="field-label" style="margin:0;">)</span>
+      </div>
+      <p class="hint">X 取值 0-1，Y 可以为负或大于 1（过冲效果）。</p>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>曲线与演示 <button class="btn btn-sm" id="btnEzReplay" style="margin-left:auto;">▶ 重播动画</button></div>
+      <div class="ease-stage">
+        <div class="ease-curve preview-box">
+          <canvas id="ezCanvas" width="420" height="340" style="max-width:100%;height:auto;"></canvas>
+        </div>
+        <div class="ease-demo">
+          <div class="ease-track"><div class="ease-ball" id="ezBall"></div></div>
+          <span style="font-size:12px;color:var(--muted);">2.4s 循环</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>CSS 代码 <button class="copy-btn" data-copy-input="ezCss" style="margin-left:auto;">复制</button></div>
+      <div class="json-output" id="ezCss" style="min-height:auto;"></div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.copy-btn');
+      if (!btn) return;
+      const src = $(btn.dataset.copyInput);
+      const text = src ? src.textContent : '';
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        toast('已复制到剪贴板');
+      } catch {
+        toast('复制失败，请手动选择复制');
+      }
+      btn.classList.add('copied');
+      setTimeout(() => btn.classList.remove('copied'), 1200);
+    });
+
+    const PRESETS = [
+      ['linear', 0, 0, 1, 1],
+      ['ease', 0.25, 0.1, 0.25, 1],
+      ['ease-in', 0.42, 0, 1, 1],
+      ['ease-out', 0, 0, 0.58, 1],
+      ['ease-in-out', 0.42, 0, 0.58, 1],
+      ['sine.inOut', 0.37, 0, 0.63, 1],
+      ['quad.out', 0.5, 1, 0.89, 1],
+      ['cubic.in', 0.32, 0, 0.67, 0],
+      ['expo.out', 0.16, 1, 0.3, 1],
+      ['back.out', 0.34, 1.56, 0.64, 1],
+      ['back.inOut', 0.68, -0.6, 0.32, 1.6],
+      ['material', 0.4, 0, 0.2, 1],
+    ];
+
+    function bezier(t, p1, p2) {
+      // 三次贝塞尔（x0=0,x3=1）
+      const u = 1 - t;
+      return 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t;
+    }
+
+    // 已知 x 求 y：x(t) 在 x1,x2∈[0,1] 时单调，直接二分
+    function yAtX(x, x1, y1, x2, y2) {
+      x = Math.min(1, Math.max(0, x));
+      let lo = 0, hi = 1;
+      for (let i = 0; i < 40; i++) {
+        const mid = (lo + hi) / 2;
+        if (bezier(mid, x1, x2) < x) lo = mid; else hi = mid;
+      }
+      return bezier((lo + hi) / 2, y1, y2);
+    }
+
+    const canvas = $('ezCanvas');
+
+    function drawCurve() {
+      const ctx = canvas.getContext('2d');
+      const W = canvas.width, H = canvas.height;
+      const pad = 46;
+      ctx.clearRect(0, 0, W, H);
+
+      const dark = document.documentElement.dataset.theme === 'dark';
+      const grid = dark ? '#2a3448' : '#e3e8f0';
+      const axis = dark ? '#6b7690' : '#8a93a6';
+
+      const x1 = Number($('ezX1').value), y1 = Number($('ezY1').value);
+      const x2 = Number($('ezX2').value), y2 = Number($('ezY2').value);
+
+      // y 范围：默认 0-1，带过冲时扩展
+      let yMin = Math.min(0, y1, y2), yMax = Math.max(1, y1, y2);
+      yMin = Math.floor(yMin * 4) / 4; yMax = Math.ceil(yMax * 4) / 4;
+      const px = (v) => pad + v * (W - pad * 2);
+      const py = (v) => H - pad - (v - yMin) / (yMax - yMin) * (H - pad * 2);
+
+      // 网格
+      ctx.strokeStyle = grid;
+      ctx.lineWidth = 1;
+      for (let gy = Math.ceil(yMin * 4) / 4; gy <= yMax; gy += 0.25) {
+        ctx.beginPath(); ctx.moveTo(pad, py(gy)); ctx.lineTo(W - pad, py(gy)); ctx.stroke();
+      }
+      for (let gx = 0; gx <= 1.001; gx += 0.25) {
+        ctx.beginPath(); ctx.moveTo(px(gx), pad); ctx.lineTo(px(gx), H - pad); ctx.stroke();
+      }
+
+      // 坐标轴
+      ctx.strokeStyle = axis;
+      ctx.beginPath();
+      ctx.moveTo(pad, py(yMin)); ctx.lineTo(pad, py(yMax));
+      ctx.moveTo(px(0), py(0)); ctx.lineTo(px(1), py(0));
+      ctx.stroke();
+      ctx.fillStyle = axis;
+      ctx.font = '11px sans-serif';
+      ctx.fillText('时间 →', W - pad - 44, py(0) - 6);
+      ctx.fillText('进度', pad - 34, py(1) + 4);
+
+      // 曲线
+      ctx.strokeStyle = '#3b82f6';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      for (let i = 0; i <= 120; i++) {
+        const x = i / 120;
+        const y = yAtX(x, x1, y1, x2, y2);
+        if (i === 0) ctx.moveTo(px(x), py(y));
+        else ctx.lineTo(px(x), py(y));
+      }
+      ctx.stroke();
+
+      // 控制点与手柄
+      ctx.setLineDash([4, 4]);
+      ctx.strokeStyle = axis;
+      ctx.beginPath();
+      ctx.moveTo(px(0), py(0)); ctx.lineTo(px(x1), py(y1));
+      ctx.moveTo(px(1), py(1)); ctx.lineTo(px(x2), py(y2));
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      [[x1, y1, 'P1'], [x2, y2, 'P2']].forEach(([cx, cy, name]) => {
+        ctx.beginPath();
+        ctx.arc(px(cx), py(cy), 6, 0, Math.PI * 2);
+        ctx.fillStyle = '#ec4899';
+        ctx.fill();
+        ctx.fillStyle = axis;
+        ctx.fillText(name + ` (${cx},${cy})`, px(cx) + 9, py(cy) - 8);
+      });
+
+      // 端点
+      ctx.fillStyle = '#3b82f6';
+      [[0, 0], [1, 1]].forEach(([cx, cy]) => {
+        ctx.beginPath();
+        ctx.arc(px(cx), py(cy), 5, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+
+    /* ---------- 小球动画 ---------- */
+    let animStart = 0;
+
+    function tick(ts) {
+      if (!animStart) animStart = ts;
+      const elapsed = ((ts - animStart) / 2400) % 1.6; // 1.0s 前进 + 0.6s 停顿
+      const p = Math.min(1, elapsed);
+      const x1 = Number($('ezX1').value), y1 = Number($('ezY1').value);
+      const x2 = Number($('ezX2').value), y2 = Number($('ezY2').value);
+      const eased = yAtX(p, x1, y1, x2, y2);
+      const ball = $('ezBall');
+      ball.style.transform = `translateY(${eased * 150}px)`;
+      requestAnimationFrame(tick);
+    }
+
+    function refresh() {
+      drawCurve();
+      const css = `transition: all 1s cubic-bezier(${Number($('ezX1').value)}, ${Number($('ezY1').value)}, ${Number($('ezX2').value)}, ${Number($('ezY2').value)});`;
+      $('ezCss').textContent = css;
+    }
+
+    // 预设
+    const presetWrap = $('easePresets');
+    PRESETS.forEach(([name, x1, y1, x2, y2]) => {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'chip preset-chip';
+      chip.textContent = name;
+      chip.addEventListener('click', () => {
+        $('ezX1').value = x1; $('ezY1').value = y1;
+        $('ezX2').value = x2; $('ezY2').value = y2;
+        presetWrap.querySelectorAll('.chip').forEach(c => c.style.borderColor = '');
+        chip.style.borderColor = 'var(--accent)';
+        refresh();
+      });
+      presetWrap.appendChild(chip);
+    });
+
+    ['ezX1', 'ezY1', 'ezX2', 'ezY2'].forEach(id => $(id).addEventListener('input', refresh));
+
+    $('btnEzReplay').addEventListener('click', () => { animStart = 0; });
+
+    // 主题切换时重绘（监听 documentElement 的 data-theme 变化）
+    new MutationObserver(refresh).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+    refresh();
+    requestAnimationFrame(tick);
+  </script>
+</body>
+</html>

@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HTTP 状态码速查 - Web IT Tool Box</title>
+  <meta name="description" content="HTTP 状态码速查表：按 1xx-5xx 分类，支持搜索，涵盖常见与常见易混淆状态码的含义说明。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚦</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / HTTP 状态码速查</div>
+      <h1><span class="icon-tile cat-ops">🚦</span>HTTP 状态码速查</h1>
+      <p class="sub">按响应类别分组的 HTTP 状态码参考，支持关键词搜索。</p>
+    </div>
+
+    <section class="panel">
+      <input type="text" id="statusSearch" placeholder="搜索状态码或含义，如：404、重定向、超时…" autocomplete="off" spellcheck="false">
+    </section>
+
+    <div id="statusGroups"></div>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    const GROUPS = [
+      {
+        cls: '1xx 信息提示', color: '#0ea5e9', items: [
+          ['100', 'Continue', '客户端应继续发送请求体（用于 Expect: 100-continue 握手）。'],
+          ['101', 'Switching Protocols', '服务器同意切换协议，如升级为 WebSocket。'],
+        ]
+      },
+      {
+        cls: '2xx 成功', color: '#16a34a', items: [
+          ['200', 'OK', '请求成功，响应体中返回所请求的资源。'],
+          ['201', 'Created', '资源创建成功，通常配合 Location 头返回新资源地址。'],
+          ['202', 'Accepted', '请求已接受但尚未处理完成（异步任务场景）。'],
+          ['204', 'No Content', '成功但无响应体，常用于 DELETE 或更新成功。'],
+          ['206', 'Partial Content', 'Range 断点续传 / 分段下载返回部分内容。'],
+        ]
+      },
+      {
+        cls: '3xx 重定向', color: '#f59e0b', items: [
+          ['301', 'Moved Permanently', '永久重定向，搜索引擎会转移权重。'],
+          ['302', 'Found', '临时重定向，不转移权重。'],
+          ['303', 'See Other', '用 GET 访问另一个 URI（PRG 模式防重复提交）。'],
+          ['304', 'Not Modified', '协商缓存命中，资源未变化，使用本地缓存。'],
+          ['307', 'Temporary Redirect', '临时重定向且不改变请求方法。'],
+          ['308', 'Permanent Redirect', '永久重定向且不改变请求方法。'],
+        ]
+      },
+      {
+        cls: '4xx 客户端错误', color: '#dc2626', items: [
+          ['400', 'Bad Request', '请求语法或参数错误，服务器无法理解。'],
+          ['401', 'Unauthorized', '未认证：缺少或无效的登录凭据。'],
+          ['403', 'Forbidden', '已认证但无权限访问该资源。'],
+          ['404', 'Not Found', '请求的资源不存在。'],
+          ['405', 'Method Not Allowed', 'HTTP 方法不被允许（如对只读接口发 POST）。'],
+          ['406', 'Not Acceptable', '无法以 Accept 头指定的格式返回内容。'],
+          ['408', 'Request Timeout', '客户端发送请求超时，服务器主动关闭。'],
+          ['409', 'Conflict', '请求与资源当前状态冲突（如并发更新）。'],
+          ['410', 'Gone', '资源已永久删除，且不可恢复。'],
+          ['413', 'Payload Too Large', '请求体超过服务器允许的大小。'],
+          ['415', 'Unsupported Media Type', 'Content-Type 不被服务器支持。'],
+          ['422', 'Unprocessable Entity', '语法正确但语义错误（常用于表单校验失败）。'],
+          ['428', 'Precondition Required', '要求携带 If-Match 等前置条件头防并发丢失更新。'],
+          ['429', 'Too Many Requests', '触发限流，稍后重试（常带 Retry-After）。'],
+          ['451', 'Unavailable For Legal Reasons', '因法律原因不可用（如内容被下架）。'],
+        ]
+      },
+      {
+        cls: '5xx 服务器错误', color: '#7c3aed', items: [
+          ['500', 'Internal Server Error', '服务器内部错误，未捕获的异常。'],
+          ['501', 'Not Implemented', '服务器不支持该请求所需的功能。'],
+          ['502', 'Bad Gateway', '网关/代理收到上游无效响应（服务挂了）。'],
+          ['503', 'Service Unavailable', '服务暂时不可用（过载或维护中）。'],
+          ['504', 'Gateway Timeout', '网关等待上游响应超时（上游太慢）。'],
+          ['505', 'HTTP Version Not Supported', '不支持的 HTTP 版本。'],
+        ]
+      },
+    ];
+
+    function render(filter) {
+      const q = (filter || '').trim().toLowerCase();
+      const wrap = $('statusGroups');
+      wrap.innerHTML = '';
+      let shown = 0;
+
+      GROUPS.forEach(g => {
+        const items = g.items.filter(([code, name, desc]) =>
+          !q || code.includes(q) || name.toLowerCase().includes(q) || desc.toLowerCase().includes(q));
+        if (!items.length) return;
+        shown += items.length;
+
+        const panel = document.createElement('section');
+        panel.className = 'panel';
+        const title = document.createElement('div');
+        title.className = 'panel-title';
+        title.innerHTML = `<span class="dot" style="background:${g.color};"></span>${g.cls}`;
+        panel.appendChild(title);
+
+        const table = document.createElement('table');
+        table.className = 'char-table';
+        table.innerHTML = '<thead><tr><th style="width:70px;">状态码</th><th style="width:200px;">名称</th><th>说明</th></tr></thead>';
+        const tbody = document.createElement('tbody');
+        items.forEach(([code, name, desc]) => {
+          const tr = document.createElement('tr');
+          tr.innerHTML =
+            `<td><strong style="color:${g.color};">${code}</strong></td>` +
+            `<td>${name}</td>` +
+            `<td>${desc}</td>`;
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        panel.appendChild(table);
+        wrap.appendChild(panel);
+      });
+
+      if (!shown) {
+        wrap.innerHTML = '<section class="panel"><p class="hint">没有匹配的状态码，换个关键词试试。</p></section>';
+      }
+    }
+
+    $('statusSearch').addEventListener('input', (e) => render(e.target.value));
+    render('');
+  </script>
+</body>
+</html>

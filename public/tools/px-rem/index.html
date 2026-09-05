@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PX ⇄ REM 换算 - Web IT Tool Box</title>
+  <meta name="description" content="PX 与 REM 在线互算：自定义根字号，双向实时换算，附带常用值速查表。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📏</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / PX ⇄ REM 换算</div>
+      <h1><span class="icon-tile cat-design">📏</span>PX ⇄ REM 换算</h1>
+      <p class="sub">按根字号（html font-size）双向换算 PX 与 REM，输入任意一边即时得出另一边。</p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>根字号（1rem = ? px）</div>
+      <div class="unit-switch">
+        <input type="number" id="rootSize" class="mono" value="16" min="1" max="200" step="0.5" style="width:120px;">
+        <span style="font-size:13px;color:var(--text-2);">px</span>
+        <span class="chips" style="margin:0 0 0 10px;">
+          <button class="chip" data-root="12">12</button>
+          <button class="chip" data-root="14">14</button>
+          <button class="chip" data-root="16">16</button>
+          <button class="chip" data-root="18">18</button>
+          <button class="chip" data-root="20">20</button>
+          <button class="chip" data-root="24">24</button>
+        </span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>双向换算</div>
+      <div class="io-grid">
+        <div>
+          <div class="io-label"><span>PX</span></div>
+          <input type="text" id="pxInput" class="mono" placeholder="输入 px 值，如 32" autocomplete="off" spellcheck="false">
+          <p class="hint" id="pxToRemHint">—</p>
+        </div>
+        <div>
+          <div class="io-label"><span>REM</span></div>
+          <input type="text" id="remInput" class="mono" placeholder="输入 rem 值，如 2" autocomplete="off" spellcheck="false">
+          <p class="hint" id="remToPxHint">—</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>常用值速查（基于当前根字号）</div>
+      <div style="overflow-x:auto;">
+        <table class="char-table" id="commonTable">
+          <thead><tr><th>PX</th><th>REM（1 位小数）</th><th>REM（4 位小数）</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    function fmt(n) {
+      // 去掉多余的尾零：2.5000 -> 2.5, 2.0000 -> 2
+      return String(parseFloat(n.toFixed(6)));
+    }
+
+    function rootPx() {
+      const v = Number($('rootSize').value);
+      return v > 0 ? v : 16;
+    }
+
+    function updateCommon() {
+      const r = rootPx();
+      const values = [1, 2, 4, 8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 48, 56, 64, 72, 80, 96, 120, 160, 200];
+      const tbody = $('commonTable').querySelector('tbody');
+      tbody.innerHTML = '';
+      values.forEach(px => {
+        const tr = document.createElement('tr');
+        tr.innerHTML =
+          `<td>${px}</td><td>${fmt(px / r)}</td><td>${(px / r).toFixed(4)}</td>`;
+        tbody.appendChild(tr);
+      });
+    }
+
+    $('pxInput').addEventListener('input', () => {
+      const v = parseFloat($('pxInput').value);
+      const r = rootPx();
+      if (isNaN(v)) { $('remToPxHint').textContent = '—'; $('pxToRemHint').textContent = '—'; return; }
+      $('pxToRemHint').innerHTML = `<strong>${fmt(v)}</strong> px = <strong>${fmt(v / r)}</strong> rem`;
+      if (document.activeElement !== $('remInput')) $('remInput').value = fmt(v / r);
+    });
+
+    $('remInput').addEventListener('input', () => {
+      const v = parseFloat($('remInput').value);
+      const r = rootPx();
+      if (isNaN(v)) { $('remToPxHint').textContent = '—'; $('pxToRemHint').textContent = '—'; return; }
+      $('remToPxHint').innerHTML = `<strong>${fmt(v)}</strong> rem = <strong>${fmt(v * r)}</strong> px`;
+      if (document.activeElement !== $('pxInput')) $('pxInput').value = fmt(v * r);
+    });
+
+    // 根字号变化后，重新换算当前已输入的值
+    function reconvert() {
+      if ($('pxInput').value) $('pxInput').dispatchEvent(new Event('input'));
+      else if ($('remInput').value) $('remInput').dispatchEvent(new Event('input'));
+    }
+
+    $('rootSize').addEventListener('input', () => { updateCommon(); reconvert(); });
+
+    document.querySelectorAll('.chip[data-root]').forEach(chip => {
+      chip.addEventListener('click', () => {
+        $('rootSize').value = chip.dataset.root;
+        updateCommon();
+        reconvert();
+      });
+    });
+
+    updateCommon();
+  </script>
+</body>
+</html>

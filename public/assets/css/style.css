@@ -850,6 +850,20 @@ input[type="range"] { flex: 1; accent-color: var(--accent); cursor: pointer; }
   .json-toolbar .btn { flex: 1 1 40%; }
 }
 
+/* 通用数据表格（速查 / 对照类工具） */
+.char-table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 13px; }
+.char-table th, .char-table td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+}
+.char-table th { background: var(--surface-2); font-weight: 600; font-family: var(--font); }
+.char-table td:nth-child(n+2) { color: var(--text-2); }
+.char-table .cp-ch { font-size: 18px; }
+
+/* 数据表格行内复制按钮 */
+.char-table .copy-btn { padding: 2px 8px; font-size: 11px; }
+
 /* ============================================
    顶栏增强：主题切换 / 全部工具下拉
    ============================================ */

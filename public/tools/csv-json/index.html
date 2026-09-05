@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CSV ⇄ JSON 互转 - Web IT Tool Box</title>
+  <meta name="description" content="在线 CSV 与 JSON 互转：支持自定义分隔符、表头开关与引号转义（RFC 4180），双向转换，全部本地完成。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / CSV ⇄ JSON 互转</div>
+      <h1><span class="icon-tile cat-qa">📊</span>CSV ⇄ JSON 互转</h1>
+      <p class="sub">CSV 与 JSON 对象数组互转，支持自定义分隔符与带引号字段（RFC 4180），全部本地完成。</p>
+    </div>
+
+    <!-- CSV → JSON -->
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>CSV → JSON</div>
+      <div class="unit-switch">
+        <span class="field-label" style="margin:0;">分隔符：</span>
+        <select id="csvDelim" style="width:auto;">
+          <option value="," selected>逗号 ,</option>
+          <option value=";">分号 ;</option>
+          <option value="\t">制表符 Tab</option>
+          <option value="|">竖线 |</option>
+        </select>
+        <label class="radio-label"><input type="checkbox" id="csvHeader" checked> 首行为表头</label>
+        <button class="btn" id="btnCsv2Json" style="margin-left:auto;">转换为 JSON ↓</button>
+      </div>
+      <div class="io-grid" style="margin-top:12px;">
+        <div>
+          <div class="io-label"><span>CSV</span></div>
+          <textarea id="csvIn" class="json-input" style="min-height:180px;" placeholder="name,age,city&#10;张三,25,北京&#10;李四,30,上海" spellcheck="false"></textarea>
+        </div>
+        <div>
+          <div class="io-label"><span>JSON</span><button class="copy-btn" data-copy-input="csvJsonOut">复制</button></div>
+          <textarea id="csvJsonOut" class="json-input" style="min-height:180px;" readonly spellcheck="false"></textarea>
+        </div>
+      </div>
+      <p class="hint" id="csvHint"></p>
+    </section>
+
+    <!-- JSON → CSV -->
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>JSON → CSV</div>
+      <div class="unit-switch">
+        <span class="field-label" style="margin:0;">分隔符：</span>
+        <select id="jsonDelim" style="width:auto;">
+          <option value="," selected>逗号 ,</option>
+          <option value=";">分号 ;</option>
+          <option value="\t">制表符 Tab</option>
+          <option value="|">竖线 |</option>
+        </select>
+        <button class="btn" id="btnJson2Csv" style="margin-left:auto;">转换为 CSV ↓</button>
+      </div>
+      <div class="io-grid" style="margin-top:12px;">
+        <div>
+          <div class="io-label"><span>JSON（对象数组）</span></div>
+          <textarea id="jsonIn" class="json-input" style="min-height:180px;" placeholder='[{"name":"张三","age":25}]' spellcheck="false"></textarea>
+        </div>
+        <div>
+          <div class="io-label"><span>CSV</span><button class="copy-btn" data-copy-input="jsonCsvOut">复制</button></div>
+          <textarea id="jsonCsvOut" class="json-input" style="min-height:180px;" readonly spellcheck="false"></textarea>
+        </div>
+      </div>
+      <p class="hint" id="jsonHint"></p>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.copy-btn');
+      if (!btn) return;
+      const src = $(btn.dataset.copyInput);
+      const text = src ? src.value : '';
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        toast('已复制到剪贴板');
+      } catch {
+        toast('复制失败，请手动选择复制');
+      }
+      btn.classList.add('copied');
+      setTimeout(() => btn.classList.remove('copied'), 1200);
+    });
+
+    function delimOf(selId) {
+      const v = $(selId).value;
+      return v === '\\t' ? '\t' : v;
+    }
+
+    /* ---------- RFC4180 迷你 CSV 解析器 ---------- */
+    function parseCsv(text, delim) {
+      const rows = [];
+      let row = [];
+      let field = '';
+      let inQuotes = false;
+      let i = 0;
+      text = text.replace(/\r\n?/g, '\n');
+      while (i < text.length) {
+        const ch = text[i];
+        if (inQuotes) {
+          if (ch === '"') {
+            if (text[i + 1] === '"') { field += '"'; i += 2; continue; }
+            inQuotes = false; i++; continue;
+          }
+          field += ch; i++; continue;
+        }
+        if (ch === '"') { inQuotes = true; i++; continue; }
+        if (ch === delim) { row.push(field); field = ''; i++; continue; }
+        if (ch === '\n') { row.push(field); rows.push(row); row = []; field = ''; i++; continue; }
+        field += ch; i++;
+      }
+      // 最后一行
+      if (field !== '' || row.length) { row.push(field); rows.push(row); }
+      return rows.filter(r => !(r.length === 1 && r[0] === '')); // 去掉完全空行
+    }
+
+    function csvCell(v) {
+      const s = v === null || v === undefined ? '' : String(v);
+      return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }
+
+    /* ---------- CSV → JSON ---------- */
+    $('btnCsv2Json').addEventListener('click', () => {
+      const text = $('csvIn').value;
+      const out = $('csvJsonOut');
+      const hint = $('csvHint');
+      if (!text.trim()) { hint.textContent = '请先输入 CSV 内容。'; hint.classList.add('err'); out.value = ''; return; }
+      try {
+        const rows = parseCsv(text, delimOf('csvDelim'));
+        if (!rows.length) throw new Error('未解析到有效数据行');
+        const hasHeader = $('csvHeader').checked;
+        let data;
+        if (hasHeader) {
+          const head = rows[0];
+          data = rows.slice(1).map(r => {
+            const obj = {};
+            head.forEach((h, i) => { obj[h.trim() || `列${i + 1}`] = autoType(r[i] ?? ''); });
+            return obj;
+          });
+        } else {
+          data = rows.map(r => r.map(autoType));
+        }
+        out.value = JSON.stringify(data, null, 2);
+        hint.classList.remove('err');
+        hint.textContent = `解析成功：${rows.length} 行（含表头 ${hasHeader ? 1 : 0} 行），输出 ${data.length} 条记录。`;
+      } catch (e) {
+        out.value = '';
+        hint.textContent = '解析失败：' + (e.message || e);
+        hint.classList.add('err');
+      }
+    });
+
+    function autoType(s) {
+      const t = s.trim();
+      if (t === '') return s; // 保留原样（空串）
+      if (/^-?\d{1,15}$/.test(t)) return Number(t);
+      if (/^-?\d+\.\d+$/.test(t)) return Number(t);
+      if (t === 'true' || t === 'false') return t === 'true';
+      return s;
+    }
+
+    /* ---------- JSON → CSV ---------- */
+    $('btnJson2Csv').addEventListener('click', () => {
+      const text = $('jsonIn').value;
+      const out = $('jsonCsvOut');
+      const hint = $('jsonHint');
+      if (!text.trim()) { hint.textContent = '请先输入 JSON 内容。'; hint.classList.add('err'); out.value = ''; return; }
+      try {
+        const data = JSON.parse(text);
+        if (!Array.isArray(data)) throw new Error('顶层必须是数组（对象数组）');
+        if (data.some(item => typeof item !== 'object' || item === null || Array.isArray(item))) {
+          throw new Error('数组元素必须是对象');
+        }
+        // 收集全部键（保留出现顺序）
+        const keys = [];
+        const keySet = new Set();
+        data.forEach(item => Object.keys(item).forEach(k => { if (!keySet.has(k)) { keySet.add(k); keys.push(k); } }));
+        const delim = delimOf('jsonDelim');
+        const lines = [keys.map(csvCell).join(delim)];
+        data.forEach(item => {
+          lines.push(keys.map(k => csvCell(item[k] ?? '')).join(delim));
+        });
+        out.value = lines.join('\n');
+        hint.classList.remove('err');
+        hint.textContent = `转换成功：${data.length} 条记录，${keys.length} 列。`;
+      } catch (e) {
+        out.value = '';
+        hint.textContent = '转换失败：' + (e.message || e);
+        hint.classList.add('err');
+      }
+    });
+
+    // 默认示例
+    $('csvIn').value = 'name,age,city,note\n张三,25,北京,"喜欢换行,\n和引号""x"""\n李四,30,上海,普通行';
+    $('jsonIn').value = JSON.stringify([
+      { name: '张三', age: 25, city: '北京' },
+      { name: '李四', age: 30, city: '上海', vip: true },
+    ], null, 2);
+  </script>
+</body>
+</html>

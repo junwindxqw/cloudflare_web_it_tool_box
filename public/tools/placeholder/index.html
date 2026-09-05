@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>占位图生成 - Web IT Tool Box</title>
+  <meta name="description" content="在线生成占位图：自定义尺寸、颜色与文字，输出 SVG 代码或 PNG/JPEG 下载，附常用尺寸预设，全部本地生成。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏞️</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / 占位图生成</div>
+      <h1><span class="icon-tile cat-qa">🏞️</span>占位图生成</h1>
+      <p class="sub">快速生成自定义尺寸的占位图，输出 SVG / PNG / JPEG，用于页面布局测试。</p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>参数</div>
+      <div class="unit-switch">
+        <input type="number" id="phW" class="mono" value="600" min="1" max="4096" style="width:110px;">
+        <span class="field-label" style="margin:0;">×</span>
+        <input type="number" id="phH" class="mono" value="300" min="1" max="4096" style="width:110px;">
+        <input type="color" id="phBg" value="#94a3b8" style="width:52px;height:34px;padding:2px;cursor:pointer;">
+        <input type="color" id="phFg" value="#ffffff" style="width:52px;height:34px;padding:2px;cursor:pointer;">
+        <input type="text" id="phText" value="" placeholder="留空显示 尺寸" style="flex:1;" spellcheck="false">
+      </div>
+      <div class="chips" style="margin-top:14px;">
+        <button class="chip" data-size="128,128">头像 128×128</button>
+        <button class="chip" data-size="200,200">200×200</button>
+        <button class="chip" data-size="375,667">手机屏 375×667</button>
+        <button class="chip" data-size="1200,630">OG 分享图 1200×630</button>
+        <button class="chip" data-size="750,422">Banner 750×422</button>
+        <button class="chip" data-size="1920,1080">全高清 1920×1080</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>预览与导出</div>
+      <div class="preview-box">
+        <div id="phPreview" style="display:inline-block;max-width:100%;"></div>
+      </div>
+      <div class="json-toolbar" style="margin-top:14px;">
+        <button class="btn" id="btnPhSvg">复制 SVG 代码</button>
+        <button class="btn" id="btnPhDataUrl">复制 Data URL</button>
+        <button class="btn" id="btnPhPng">⬇️ 下载 PNG</button>
+        <button class="btn" id="btnPhJpg">⬇️ 下载 JPEG</button>
+      </div>
+      <p class="hint" id="phInfo"></p>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    async function copyText(text, label) {
+      try {
+        await navigator.clipboard.writeText(text);
+        toast(label);
+      } catch { toast('复制失败，请手动选择复制'); }
+    }
+
+    function buildSvg(w, h, bg, fg, text) {
+      const label = text || `${w} × ${h}`;
+      // 字号自适应：约取较短边 1/8，限制在 12~120
+      const fontSize = Math.min(120, Math.max(12, Math.min(w, h) / 8));
+      const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">` +
+        `<rect width="100%" height="100%" fill="${bg}"/>` +
+        `<text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" ` +
+        `font-family="sans-serif" font-size="${fontSize}" fill="${fg}">${esc(label)}</text>` +
+        `</svg>`;
+    }
+
+    function getParams() {
+      const w = Math.max(1, Math.min(4096, Math.round(Number($('phW').value) || 300)));
+      const h = Math.max(1, Math.min(4096, Math.round(Number($('phH').value) || 200)));
+      return { w, h, bg: $('phBg').value, fg: $('phFg').value, text: $('phText').value.trim() };
+    }
+
+    function render() {
+      const { w, h, bg, fg, text } = getParams();
+      const svg = buildSvg(w, h, bg, fg, text);
+
+      const wrap = $('phPreview');
+      wrap.innerHTML = svg;
+      const svgEl = wrap.querySelector('svg');
+      svgEl.style.maxWidth = '100%';
+      svgEl.style.height = 'auto';
+      svgEl.style.border = '1px solid var(--border)';
+      svgEl.style.borderRadius = '8px';
+      svgEl.style.background = 'var(--surface-2)';
+
+      $('phInfo').textContent = `SVG 大小约 ${(svg.length / 1024).toFixed(2)} KB（矢量，任意尺寸无损）`;
+      return svg;
+    }
+
+    ['phW', 'phH', 'phBg', 'phFg', 'phText'].forEach(id => $(id).addEventListener('input', render));
+
+    document.querySelectorAll('.chip[data-size]').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const [w, h] = chip.dataset.size.split(',');
+        $('phW').value = w;
+        $('phH').value = h;
+        render();
+      });
+    });
+
+    $('btnPhSvg').addEventListener('click', () => {
+      copyText(render(), '已复制 SVG 代码');
+    });
+
+    $('btnPhDataUrl').addEventListener('click', () => {
+      const { w, h, bg, fg, text } = getParams();
+      const svg = buildSvg(w, h, bg, fg, text);
+      const dataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+      copyText(dataUrl, '已复制 Data URL');
+    });
+
+    function downloadRaster(mime, ext) {
+      const { w, h, bg, fg, text } = getParams();
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = fg;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = `600 ${Math.min(120, Math.max(12, Math.min(w, h) / 8))}px sans-serif`;
+      ctx.fillText(text || `${w} × ${h}`, w / 2, h / 2);
+      canvas.toBlob((blob) => {
+        if (!blob) { toast('导出失败'); return; }
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `placeholder-${w}x${h}.${ext}`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+      }, mime, 0.9);
+    }
+
+    $('btnPhPng').addEventListener('click', () => downloadRaster('image/png', 'png'));
+    $('btnPhJpg').addEventListener('click', () => downloadRaster('image/jpeg', 'jpg'));
+
+    render();
+  </script>
+</body>
+</html>

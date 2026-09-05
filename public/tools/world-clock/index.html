@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>世界时钟 - Web IT Tool Box</title>
+  <meta name="description" content="多时区世界时钟：实时显示各时区当前时间、日期与 UTC 偏移，可自由添加/删除时区，选择保存在本地。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌍</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <style>
+    .zone-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+    .zone-card {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 14px 16px;
+      position: relative;
+    }
+    .zone-card .z-close {
+      position: absolute; top: 8px; right: 8px;
+      width: 22px; height: 22px; border-radius: 50%;
+      border: none; background: transparent; color: var(--muted);
+      cursor: pointer; font-size: 13px; line-height: 1;
+    }
+    .zone-card .z-close:hover { color: var(--danger); }
+    .zone-card .z-name { font-size: 13.5px; font-weight: 700; }
+    .zone-card .z-time {
+      font-family: var(--mono); font-size: 26px; font-weight: 700;
+      color: var(--accent-strong); font-variant-numeric: tabular-nums;
+      margin: 2px 0;
+    }
+    .zone-card .z-meta { font-size: 12px; color: var(--muted); }
+  </style>
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / 世界时钟</div>
+      <h1><span class="icon-tile cat-ops">🌍</span>世界时钟</h1>
+      <p class="sub">同时查看多个时区的当前时间，与本地时间的差值一目了然。你的时区选择只保存在浏览器本地。</p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>添加时区</div>
+      <div class="unit-switch">
+        <select id="zoneSelect" style="flex:1;"></select>
+        <button class="btn primary" id="btnZoneAdd">＋ 添加</button>
+        <button class="btn" id="btnZoneReset">恢复默认</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>时钟（每秒刷新）</div>
+      <div class="zone-grid" id="zoneGrid"></div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    const DEFAULT_ZONES = [
+      'Asia/Shanghai', 'UTC', 'Asia/Tokyo', 'Asia/Singapore',
+      'Europe/London', 'Europe/Berlin', 'America/New_York', 'America/Los_Angeles',
+    ];
+
+    const AVAILABLE_ZONES = [
+      'Asia/Shanghai', 'Asia/Hong_Kong', 'Asia/Taipei', 'Asia/Tokyo', 'Asia/Seoul',
+      'Asia/Singapore', 'Asia/Bangkok', 'Asia/Kolkata', 'Asia/Dubai', 'Asia/Jerusalem',
+      'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Europe/Moscow', 'Europe/Amsterdam',
+      'UTC', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
+      'America/Sao_Paulo', 'America/Toronto', 'Australia/Sydney', 'Pacific/Auckland', 'Africa/Cairo',
+    ];
+
+    const STORE_KEY = 'witb-world-clock-zones';
+
+    function loadZones() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(STORE_KEY));
+        if (Array.isArray(saved) && saved.length) return saved.filter(z => AVAILABLE_ZONES.includes(z));
+      } catch (e) { /* ignore */ }
+      return [...DEFAULT_ZONES];
+    }
+
+    function saveZones(zones) {
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(zones)); } catch (e) { /* ignore */ }
+    }
+
+    let zones = loadZones();
+
+    /* ---------- 时区选择器 ---------- */
+    function fillSelect() {
+      const sel = $('zoneSelect');
+      sel.innerHTML = '';
+      AVAILABLE_ZONES
+        .filter(z => !zones.includes(z))
+        .forEach(z => {
+          const opt = document.createElement('option');
+          opt.value = z;
+          opt.textContent = z;
+          sel.appendChild(opt);
+        });
+    }
+
+    function offsetLabel(date, zone) {
+      // 计算 UTC 偏移，如 UTC+8 / UTC-5:30
+      try {
+        const dtf = new Intl.DateTimeFormat('en-US', { timeZone: zone, timeZoneName: 'shortOffset' });
+        const part = dtf.formatToParts(date).find(p => p.type === 'timeZoneName');
+        return part ? part.value.replace('GMT', 'UTC') : '';
+      } catch (e) {
+        return '';
+      }
+    }
+
+    function zoneOffsetMinutes(date, zone) {
+      // 该时区当前墙上时间相对 UTC 的偏移（分钟）
+      const dtf = new Intl.DateTimeFormat('en-US', {
+        timeZone: zone, hour12: false,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+      });
+      const parts = Object.fromEntries(dtf.formatToParts(date).map(p => [p.type, p.value]));
+      const asUTC = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+        Number(parts.hour) % 24, Number(parts.minute), Number(parts.second));
+      return Math.round((asUTC - date.getTime()) / 60000);
+    }
+
+    const pad = (n) => String(n).padStart(2, '0');
+    const WEEK = ['日', '一', '二', '三', '四', '五', '六'];
+
+    function render() {
+      const grid = $('zoneGrid');
+      const now = new Date();
+      grid.innerHTML = '';
+
+      zones.forEach(zone => {
+        let timeStr = '—', dateStr = '', offStr = '', diff = '';
+        try {
+          timeStr = now.toLocaleTimeString('zh-CN', { timeZone: zone, hour12: false });
+          const d = now.toLocaleDateString('zh-CN', { timeZone: zone });
+          const wd = new Date(now.toLocaleString('en-US', { timeZone: zone })).getDay();
+          dateStr = `${d}（周${WEEK[wd]}）`;
+          offStr = offsetLabel(now, zone);
+
+          const zoneOff = zoneOffsetMinutes(now, zone);
+          const localOff = -now.getTimezoneOffset();
+          let diffMin = zoneOff - localOff;
+          if (diffMin > 720) diffMin -= 1440;
+          if (diffMin < -720) diffMin += 1440;
+          const sign = diffMin === 0 ? '±' : diffMin > 0 ? '+' : '-';
+          const absMin = Math.abs(diffMin);
+          diff = `${sign}${Math.floor(absMin / 60)}h${absMin % 60 ? (absMin % 60) + 'm' : ''}`;
+        } catch (e) {
+          timeStr = '不支持';
+        }
+
+        const card = document.createElement('div');
+        card.className = 'zone-card';
+        card.dataset.zone = zone;
+        card.innerHTML =
+          `<button class="z-close" title="移除">✕</button>` +
+          `<div class="z-name">${zone}</div>` +
+          `<div class="z-time">${timeStr}</div>` +
+          `<div class="z-meta">${dateStr} · ${offStr}${diff ? ` · 与本地 ${diff}` : ''}</div>`;
+        grid.appendChild(card);
+      });
+      fillSelect();
+    }
+
+    $('zoneGrid').addEventListener('click', (e) => {
+      const close = e.target.closest('.z-close');
+      if (!close) return;
+      const card = close.closest('.zone-card');
+      const zone = card.dataset.zone;
+      zones = zones.filter(z => z !== zone);
+      saveZones(zones);
+      render();
+      toast('已移除 ' + zone);
+    });
+
+    $('btnZoneAdd').addEventListener('click', () => {
+      const zone = $('zoneSelect').value;
+      if (!zone || zones.includes(zone)) return;
+      zones.push(zone);
+      saveZones(zones);
+      render();
+    });
+
+    $('btnZoneReset').addEventListener('click', () => {
+      zones = [...DEFAULT_ZONES];
+      saveZones(zones);
+      render();
+    });
+
+    render();
+    setInterval(render, 1000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>chmod 权限计算 - Web IT Tool Box</title>
+  <meta name="description" content="Linux chmod 权限计算器：勾选 rwx 生成八进制数字与符号表示，支持 setuid/setgid/sticky 特殊权限，双向换算。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔒</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <style>
+    .perm-grid { display: grid; grid-template-columns: auto repeat(4, 64px); gap: 8px 10px; align-items: center; justify-items: center; }
+    .perm-grid .pg-head { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+    .perm-grid .pg-label { justify-self: start; font-size: 13.5px; font-weight: 600; color: var(--text-2); }
+    .perm-grid input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; accent-color: var(--accent); }
+    @media (max-width: 560px) {
+      .perm-grid { grid-template-columns: auto repeat(4, 52px); }
+    }
+  </style>
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / chmod 权限计算</div>
+      <h1><span class="icon-tile cat-ops">🔒</span>chmod 权限计算</h1>
+      <p class="sub">在 rwx 与八进制数字之间双向换算，支持 setuid / setgid / sticky 特殊权限位。</p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>勾选权限</div>
+      <div class="perm-grid" id="permGrid">
+        <span></span>
+        <span class="pg-head">读 (4)</span>
+        <span class="pg-head">写 (2)</span>
+        <span class="pg-head">执行 (1)</span>
+        <span class="pg-head">特殊</span>
+
+        <span class="pg-label">所有者 (u)</span>
+        <input type="checkbox" id="u4" checked><input type="checkbox" id="u2" checked><input type="checkbox" id="u1" checked><input type="checkbox" id="su4" title="setuid">
+
+        <span class="pg-label">所属组 (g)</span>
+        <input type="checkbox" id="g4" checked><input type="checkbox" id="g2"><input type="checkbox" id="g1" checked><input type="checkbox" id="sg2" title="setgid">
+
+        <span class="pg-label">其他人 (o)</span>
+        <input type="checkbox" id="o4" checked><input type="checkbox" id="o2"><input type="checkbox" id="o1" checked><input type="checkbox" id="so1" title="sticky">
+      </div>
+      <p class="hint">特殊位：setuid（u+s）/ setgid（g+s）/ sticky（o+t，目录防删除）。</p>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>数字表示（反向输入自动同步勾选）</div>
+      <div class="unit-switch">
+        <input type="text" id="chmodNum" class="mono" value="755" style="width:130px;" maxlength="4" autocomplete="off" spellcheck="false">
+        <span class="field-label" style="margin:0;">或带特殊位：0755</span>
+      </div>
+      <div class="result-list" style="margin-top:16px;">
+        <div class="result-row">
+          <span class="r-label" style="width:110px;">八进制</span>
+          <span class="r-value" id="rOctal">755</span>
+          <button class="copy-btn" data-copy-target="rOctal">复制</button>
+        </div>
+        <div class="result-row">
+          <span class="r-label" style="width:110px;">符号表示</span>
+          <span class="r-value" id="rSymbol">-rwxr-xr-x</span>
+          <button class="copy-btn" data-copy-target="rSymbol">复制</button>
+        </div>
+        <div class="result-row">
+          <span class="r-label" style="width:110px;">chmod 命令</span>
+          <span class="r-value" id="rCmd">chmod 755 &lt;file&gt;</span>
+          <button class="copy-btn" data-copy-target="rCmd">复制</button>
+        </div>
+      </div>
+      <p class="hint" id="chmodDesc"></p>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.copy-btn');
+      if (!btn) return;
+      const text = $(btn.dataset.copyTarget)?.textContent ?? '';
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        toast('已复制到剪贴板');
+      } catch {
+        toast('复制失败，请手动选择复制');
+      }
+      btn.classList.add('copied');
+      setTimeout(() => btn.classList.remove('copied'), 1200);
+    });
+
+    const WHO = [['u', 'su4'], ['g', 'sg2'], ['o', 'so1']];
+
+    function bitsFromCheckboxes() {
+      // 返回 { value: 0o755, special: 0o400|0o200|0o100 }
+      let v = 0;
+      WHO.forEach(([w]) => {
+        if ($(`${w}4`).checked) v += 4;
+        if ($(`${w}2`).checked) v += 2;
+        if ($(`${w}1`).checked) v += 1;
+        v *= 8;
+      });
+      v /= 8;
+      let special = 0;
+      if ($('su4').checked) special += 4;
+      if ($('sg2').checked) special += 2;
+      if ($('so1').checked) special += 1;
+      return { value: v, special };
+    }
+
+    function symbolOf(value, special) {
+      const groups = [
+        { w: 'u', sp: special & 4 },
+        { w: 'g', sp: special & 2 },
+        { w: 'o', sp: special & 1 },
+      ];
+      let out = '';
+      const octal = value.toString(8).padStart(3, '0');
+      groups.forEach((g, i) => {
+        const bits = Number(octal[i]);
+        const r = bits & 4, wr = bits & 2, x = bits & 1;
+        out += (r ? 'r' : '-');
+        out += (wr ? 'w' : '-');
+        if (x && g.sp) out += g.w === 'o' ? 't' : 's';
+        else if (g.sp) out += g.w === 'o' ? 'T' : 'S';
+        else out += x ? 'x' : '-';
+      });
+      return out;
+    }
+
+    function descOf(value) {
+      const octal = value.toString(8).padStart(3, '0');
+      const parts = [];
+      const names = ['所有者', '所属组', '其他人'];
+      names.forEach((n, i) => {
+        const bits = Number(octal[i]);
+        const p = [];
+        if (bits & 4) p.push('读');
+        if (bits & 2) p.push('写');
+        if (bits & 1) p.push('执行');
+        parts.push(`${n}：${p.length ? p.join(' + ') : '无权限'}`);
+      });
+      return parts.join('；');
+    }
+
+    function renderFromCheckboxes() {
+      const { value, special } = bitsFromCheckboxes();
+      const octalStr = (special ? String(special) : '') + value.toString(8).padStart(3, '0');
+      $('chmodNum').value = octalStr;
+      $('rOctal').textContent = octalStr;
+      const sym = symbolOf(value, special);
+      $('rSymbol').textContent = sym;
+      $('rCmd').textContent = `chmod ${octalStr} <file>`;
+      $('chmodDesc').textContent = descOf(value);
+    }
+
+    function renderFromNumber() {
+      const raw = $('chmodNum').value.trim();
+      if (!/^[0-7]{3,4}$/.test(raw)) return;
+      const padded = raw.padStart(4, '0');
+      const special = Number(padded[0]);
+      const value = parseInt(padded.slice(1), 8);
+
+      const octal = value.toString(8).padStart(3, '0');
+      ['u', 'g', 'o'].forEach((w, i) => {
+        const bits = Number(octal[i]);
+        $(`${w}4`).checked = !!(bits & 4);
+        $(`${w}2`).checked = !!(bits & 2);
+        $(`${w}1`).checked = !!(bits & 1);
+      });
+      $('su4').checked = !!(special & 4);
+      $('sg2').checked = !!(special & 2);
+      $('so1').checked = !!(special & 1);
+
+      $('rOctal').textContent = raw;
+      $('rSymbol').textContent = symbolOf(value, special);
+      $('rCmd').textContent = `chmod ${raw} <file>`;
+      $('chmodDesc').textContent = descOf(value);
+    }
+
+    $('permGrid').addEventListener('change', (e) => {
+      if (e.target.type === 'checkbox') renderFromCheckboxes();
+    });
+
+    $('chmodNum').addEventListener('input', renderFromNumber);
+
+    renderFromCheckboxes();
+  </script>
+</body>
+</html>

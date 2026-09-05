@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Git 命令速查 - Web IT Tool Box</title>
+  <meta name="description" content="Git 常用命令速查表：配置、基础操作、分支、远程、撤销、标签、储藏等分类整理，支持搜索与一键复制。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌿</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / Git 命令速查</div>
+      <h1><span class="icon-tile cat-ops">🌿</span>Git 命令速查</h1>
+      <p class="sub">按场景分类的 Git 常用命令，点击命令即可复制。</p>
+    </div>
+
+    <section class="panel">
+      <input type="text" id="gitSearch" placeholder="搜索命令或说明，如：rebase、撤销、分支…" autocomplete="off" spellcheck="false">
+    </section>
+
+    <div id="gitGroups"></div>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    const GROUPS = [
+      {
+        name: '⚙️ 配置', items: [
+          ['git config --global user.name "名"', '设置全局用户名'],
+          ['git config --global user.email "a@b.com"', '设置全局邮箱'],
+          ['git config --global init.defaultBranch main', '默认分支名设为 main'],
+          ['git config --list', '查看全部配置'],
+          ['git config --global alias.st status', '设置别名（git st）'],
+        ]
+      },
+      {
+        name: '📦 基础操作', items: [
+          ['git init', '初始化新仓库'],
+          ['git clone <url>', '克隆远程仓库'],
+          ['git status', '查看工作区状态'],
+          ['git add .', '暂存全部改动'],
+          ['git add -p', '交互式分块暂存'],
+          ['git commit -m "msg"', '提交已暂存的改动'],
+          ['git commit --amend', '修改上一次提交（信息或内容）'],
+          ['git log --oneline --graph', '简洁图形化查看历史'],
+          ['git diff', '查看未暂存的改动'],
+          ['git diff --staged', '查看已暂存的改动'],
+          ['git show <commit>', '查看某次提交详情'],
+        ]
+      },
+      {
+        name: '🌿 分支', items: [
+          ['git branch', '列出本地分支'],
+          ['git branch -a', '列出所有分支（含远程）'],
+          ['git branch <name>', '创建新分支'],
+          ['git switch <name>', '切换分支'],
+          ['git switch -c <name>', '创建并切换分支'],
+          ['git branch -d <name>', '删除已合并分支'],
+          ['git branch -D <name>', '强制删除分支'],
+          ['git merge <name>', '合并指定分支到当前分支'],
+          ['git rebase <name>', '变基：把当前分支基于目标分支重放'],
+          ['git rebase -i HEAD~3', '交互式变基（改最近 3 次提交）'],
+          ['git cherry-pick <commit>', '摘取单个提交到当前分支'],
+        ]
+      },
+      {
+        name: '🌐 远程', items: [
+          ['git remote -v', '查看远程仓库'],
+          ['git remote add origin <url>', '添加远程仓库'],
+          ['git fetch origin', '拉取远程更新（不合并）'],
+          ['git pull origin main', '拉取并合并远程分支'],
+          ['git push origin main', '推送本地分支'],
+          ['git push -u origin main', '首次推送并建立跟踪'],
+          ['git push origin --delete <name>', '删除远程分支'],
+          ['git push --force-with-lease', '安全强推（覆盖前校验远程无新提交）'],
+        ]
+      },
+      {
+        name: '↩️ 撤销与回退', items: [
+          ['git restore <file>', '丢弃工作区改动'],
+          ['git restore --staged <file>', '取消暂存（保留改动）'],
+          ['git reset --soft HEAD~1', '撤销上次提交，改动保留在暂存区'],
+          ['git reset --mixed HEAD~1', '撤销上次提交，改动保留在工作区'],
+          ['git reset --hard HEAD~1', '彻底丢弃上次提交与改动（慎用）'],
+          ['git revert <commit>', '生成一次反向提交以安全回退'],
+          ['git reflog', '查看所有操作记录（救命稻草）'],
+          ['git clean -fd', '删除未跟踪的文件与目录（慎用）'],
+        ]
+      },
+      {
+        name: '🏷️ 标签', items: [
+          ['git tag', '列出标签'],
+          ['git tag v1.0.0', '创建轻量标签'],
+          ['git tag -a v1.0.0 -m "版本说明"', '创建附注标签'],
+          ['git push origin v1.0.0', '推送标签到远程'],
+          ['git push origin --tags', '推送全部标签'],
+          ['git tag -d v1.0.0', '删除本地标签'],
+        ]
+      },
+      {
+        name: '🗄️ 储藏与杂项', items: [
+          ['git stash', '临时储藏当前改动'],
+          ['git stash list', '查看储藏列表'],
+          ['git stash pop', '恢复最近一次储藏并删除记录'],
+          ['git stash apply stash@{1}', '恢复指定储藏（保留记录）'],
+          ['git stash drop', '删除最近一次储藏'],
+          ['git blame <file>', '逐行查看文件最后修改者'],
+          ['git shortlog -sn', '按提交数统计贡献者'],
+          ['git bisect start', '二分查找引入 bug 的提交'],
+        ]
+      },
+    ];
+
+    function render(filter) {
+      const q = (filter || '').trim().toLowerCase();
+      const wrap = $('gitGroups');
+      wrap.innerHTML = '';
+      let shown = 0;
+
+      GROUPS.forEach(g => {
+        const items = g.items.filter(([cmd, desc]) =>
+          !q || cmd.toLowerCase().includes(q) || desc.toLowerCase().includes(q));
+        if (!items.length) return;
+        shown += items.length;
+
+        const panel = document.createElement('section');
+        panel.className = 'panel';
+        const title = document.createElement('div');
+        title.className = 'panel-title';
+        title.innerHTML = `<span class="dot"></span>${g.name}`;
+        panel.appendChild(title);
+
+        items.forEach(([cmd, desc]) => {
+          const row = document.createElement('div');
+          row.className = 'nx';
+          row.style.cursor = 'pointer';
+          row.title = '点击复制';
+          row.innerHTML =
+            `<span style="flex:1;word-break:break-all;">${cmd}</span>` +
+            `<span style="font-size:12px;color:var(--muted);font-family:var(--font);flex-shrink:0;">${desc}</span>`;
+          row.addEventListener('click', async () => {
+            try {
+              await navigator.clipboard.writeText(cmd);
+              toast('已复制：' + cmd);
+            } catch { toast('复制失败，请手动选择复制'); }
+          });
+          panel.appendChild(row);
+        });
+        wrap.appendChild(panel);
+      });
+
+      if (!shown) wrap.innerHTML = '<section class="panel"><p class="hint">没有匹配的命令，换个关键词试试。</p></section>';
+    }
+
+    $('gitSearch').addEventListener('input', (e) => render(e.target.value));
+    render('');
+  </script>
+</body>
+</html>

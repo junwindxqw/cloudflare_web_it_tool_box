@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>字数统计 - Web IT Tool Box</title>
+  <meta name="description" content="在线字数统计：字符数、汉字数、英文单词数、行数、UTF-8 字节数等多维度实时统计，支持输入框长度限制测试。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔢</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / 字数统计</div>
+      <h1><span class="icon-tile cat-qa">🔢</span>字数统计</h1>
+      <p class="sub">多维度实时统计：字符、汉字、单词、行数、UTF-8 字节等，适合测试输入框长度限制。</p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>输入文本</div>
+      <textarea id="ccInput" class="json-input" style="min-height:220px;" placeholder="在此粘贴或输入要统计的文本…" spellcheck="false"></textarea>
+      <div class="stat-bar" id="ccStats"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>统计详情</div>
+      <div class="result-list">
+        <div class="result-row">
+          <span class="r-label">字符数</span>
+          <span class="r-value" id="cChars">0</span>
+        </div>
+        <div class="result-row">
+          <span class="r-label">不含空白</span>
+          <span class="r-value" id="cCharsNoSpace">0</span>
+        </div>
+        <div class="result-row">
+          <span class="r-label">汉字数</span>
+          <span class="r-value" id="cHan">0</span>
+        </div>
+        <div class="result-row">
+          <span class="r-label">英文单词</span>
+          <span class="r-value" id="cWords">0</span>
+        </div>
+        <div class="result-row">
+          <span class="r-label">数字个数</span>
+          <span class="r-value" id="cDigits">0</span>
+        </div>
+        <div class="result-row">
+          <span class="r-label">标点符号</span>
+          <span class="r-value" id="cPunct">0</span>
+        </div>
+        <div class="result-row">
+          <span class="r-label">行数</span>
+          <span class="r-value" id="cLines">0</span>
+        </div>
+        <div class="result-row">
+          <span class="r-label">非空行</span>
+          <span class="r-value" id="cNonEmpty">0</span>
+        </div>
+        <div class="result-row">
+          <span class="r-label">UTF-8 字节</span>
+          <span class="r-value" id="cBytes">0</span>
+        </div>
+        <div class="result-row">
+          <span class="r-label">UTF-16 码元</span>
+          <span class="r-value" id="cUtf16">0</span>
+        </div>
+        <div class="result-row">
+          <span class="r-label">码点数</span>
+          <span class="r-value" id="cPoints">0</span>
+        </div>
+        <div class="result-row">
+          <span class="r-label">最长行</span>
+          <span class="r-value" id="cMaxLine">0</span>
+        </div>
+      </div>
+      <p class="hint">「UTF-16 码元」即多数前端框架 length 的统计口径（emoji 计为 2）；「码点数」为真实字符数。</p>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    function count() {
+      const text = $('ccInput').value;
+      const chars = Array.from(text); // 按码点切分
+      const han = (text.match(/[\u4e00-\u9fff]/g) || []).length;
+      const words = (text.match(/[a-zA-Z]+(?:'[a-z]+)?/g) || []).length;
+      const digits = (text.match(/\d/g) || []).length;
+      const punct = (text.match(/[\p{P}\p{S}]/gu) || []).length;
+      const lines = text === '' ? 0 : text.split('\n').length;
+      const nonEmpty = text.split('\n').filter(l => l.trim() !== '').length;
+      const bytes = new TextEncoder().encode(text).length;
+      const maxLine = text.split('\n').reduce((m, l) => Math.max(m, l.length), 0);
+
+      $('cChars').textContent = chars.length.toLocaleString();
+      $('cCharsNoSpace').textContent = chars.filter(c => !/\s/.test(c)).length.toLocaleString();
+      $('cHan').textContent = han.toLocaleString();
+      $('cWords').textContent = words.toLocaleString();
+      $('cDigits').textContent = digits.toLocaleString();
+      $('cPunct').textContent = punct.toLocaleString();
+      $('cLines').textContent = lines.toLocaleString();
+      $('cNonEmpty').textContent = nonEmpty.toLocaleString();
+      $('cBytes').textContent = bytes.toLocaleString();
+      $('cUtf16').textContent = text.length.toLocaleString();
+      $('cPoints').textContent = chars.length.toLocaleString();
+      $('cMaxLine').textContent = maxLine.toLocaleString();
+
+      $('ccStats').innerHTML =
+        `<span class="ok">字符 ${chars.length.toLocaleString()}</span>` +
+        `<span>汉字 ${han.toLocaleString()}</span>` +
+        `<span>单词 ${words.toLocaleString()}</span>` +
+        `<span>字节 ${bytes.toLocaleString()}</span>`;
+    }
+
+    $('ccInput').addEventListener('input', count);
+  </script>
+</body>
+</html>

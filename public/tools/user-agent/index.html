@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>User-Agent 解析 - Web IT Tool Box</title>
+  <meta name="description" content="在线 User-Agent 解析：识别浏览器、内核、操作系统、设备类型与爬虫标记，附常见 UA 示例，全部本地解析。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🕵️</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / User-Agent 解析</div>
+      <h1><span class="icon-tile cat-qa">🕵️</span>User-Agent 解析</h1>
+      <p class="sub">解析 UA 字符串中的浏览器、内核、操作系统与设备类型，全部本地完成。</p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>输入 UA</div>
+      <textarea id="uaInput" class="json-input" style="min-height:100px;" placeholder="粘贴 User-Agent 字符串…" spellcheck="false"></textarea>
+      <div class="btn-row">
+        <button class="btn" id="btnUaSelf">📍 用我当前的 UA</button>
+      </div>
+      <div class="chips" id="uaSamples" style="margin-top:14px;"></div>
+    </section>
+
+    <section class="panel" id="uaResult" hidden>
+      <div class="panel-title"><span class="dot"></span>解析结果</div>
+      <div class="result-list" id="uaRows"></div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    function escapeHtml(s) {
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    /* ---------- 解析规则（顺序敏感） ---------- */
+    const BROWSERS = [
+      ['Edge', /Edg(?:e|A|iOS)?\/([\d.]+)/],
+      ['Opera', /(?:OPR|Opera)\/([\d.]+)/],
+      ['Vivaldi', /Vivaldi\/([\d.]+)/],
+      ['Brave', /Brave\/([\d.]+)/],
+      ['Samsung Internet', /SamsungBrowser\/([\d.]+)/],
+      ['QQ 浏览器', /QQBrowser\/([\d.]+)/],
+      ['UC 浏览器', /(?:UCBrowser|UBrowser)\/([\d.]+)/],
+      ['微信内置', /MicroMessenger\/([\d.]+)/],
+      ['360 浏览器', /(?:QIHU 360|360SE|360EE)/],
+      ['Firefox', /(?:Firefox|FxiOS)\/([\d.]+)/],
+      ['Chrome', /(?:Chrome|CriOS)\/([\d.]+)/],
+      ['Safari', /Version\/([\d.]+).*Safari/],
+      ['IE', /(?:MSIE ([\d.]+)|Trident\/.*rv:([\d.]+))/],
+    ];
+
+    const ENGINES = [
+      ['Blink', /Chrome\/(\d+)/, null],
+      ['Gecko', /rv:([\d.]+)/, null],
+      ['WebKit', /AppleWebKit\/([\d.]+)/, null],
+      ['Trident', /Trident\/([\d.]+)/, null],
+    ];
+
+    const OSES = [
+      ['Windows 11 / 10', /Windows NT 10\.0/],
+      ['Windows 8.1', /Windows NT 6\.3/],
+      ['Windows 8', /Windows NT 6\.2/],
+      ['Windows 7', /Windows NT 6\.1/],
+      ['Windows Vista', /Windows NT 6\.0/],
+      ['Windows XP', /Windows NT 5\.1/],
+      ['macOS', /Mac OS X ([\d_]+)/],
+      ['iOS', /(?:iPhone|iPad).*OS ([\d_]+)/],
+      ['iPadOS', /iPad; CPU OS ([\d_]+)/],
+      ['Android', /Android ([\d.]+)/],
+      ['HarmonyOS', /HarmonyOS/],
+      ['Linux', /(?:Linux|X11)/],
+      ['FreeBSD', /FreeBSD/],
+    ];
+
+    function parseUa(ua) {
+      ua = ua.trim();
+      const out = {};
+
+      // 浏览器
+      out.browser = '未知';
+      for (const [name, re] of BROWSERS) {
+        const m = ua.match(re);
+        if (m) {
+          const ver = (m[1] || m[2] || '').replace(/^$/, '');
+          out.browser = name + (ver ? ' ' + ver : '');
+          break;
+        }
+      }
+
+      // 内核
+      out.engine = '未知';
+      if (/Gecko\/\d/.test(ua) && !/like Gecko/.test(ua)) out.engine = 'Gecko';
+      else if (/Trident\//.test(ua)) out.engine = 'Trident ' + (ua.match(/Trident\/([\d.]+)/) || [])[1] || '';
+      else if (/AppleWebKit\//.test(ua)) {
+        out.engine = /Chrome\/(\d+)/.test(ua)
+          ? 'Blink（' + ua.match(/Chrome\/([\d.]+)/)[1] + '）'
+          : 'WebKit（' + (ua.match(/AppleWebKit\/([\d.]+)/) || [])[1] + '）';
+      }
+
+      // 操作系统
+      out.os = '未知';
+      for (const [name, re] of OSES) {
+        const m = ua.match(re);
+        if (m) {
+          out.os = name;
+          if (m[1]) out.os += ' ' + m[1].replace(/_/g, '.');
+          break;
+        }
+      }
+
+      // 设备类型
+      if (/iPad|Tablet|PlayBook|Silk/.test(ua)) out.device = '平板';
+      else if (/Mobi|iPhone|Android.*Mobile|Windows Phone/.test(ua)) out.device = '手机';
+      else if (/Bot|Crawler|Spider|Slurp|bingbot|Googlebot|Baiduspider|Sogou|Yisou|DuckDuckBot|curl|Wget|python-requests|HeadlessChrome/i.test(ua)) out.device = '程序 / 爬虫';
+      else out.device = '桌面';
+
+      // 爬虫标记
+      const bot = /Bot|Crawler|Spider|Slurp|bingbot|Googlebot|Baiduspider|Sogou|Yisou|DuckDuckBot|facebookexternalhit|HeadlessChrome|curl|Wget|python-requests|Postman/i;
+      out.bot = bot.test(ua) ? '🤖 是（' + ((ua.match(bot) || [''])[0]) + '）' : '否';
+
+      // CPU 架构
+      if (/WOW64|x64|Win64|amd64/i.test(ua)) out.arch = '64 位';
+      else if (/arm|aarch64/i.test(ua)) out.arch = 'ARM';
+      else out.arch = '—';
+
+      return out;
+    }
+
+    function renderRows(ua) {
+      const info = parseUa(ua);
+      const rows = $('uaRows');
+      rows.innerHTML = '';
+      Object.entries({ browser: '浏览器', engine: '内核', os: '操作系统', device: '设备类型', bot: '爬虫/机器人', arch: '架构' }).forEach(([k, label]) => {
+        const row = document.createElement('div');
+        row.className = 'result-row';
+        row.innerHTML =
+          `<span class="r-label" style="width:100px;">${label}</span>` +
+          `<span class="r-value">${escapeHtml(info[k])}</span>`;
+        rows.appendChild(row);
+      });
+      $('uaResult').hidden = false;
+    }
+
+    let renderTimer = null;
+    $('uaInput').addEventListener('input', () => {
+      clearTimeout(renderTimer);
+      renderTimer = setTimeout(() => {
+        const v = $('uaInput').value;
+        if (v.trim()) renderRows(v);
+        else $('uaResult').hidden = true;
+      }, 120);
+    });
+
+    $('btnUaSelf').addEventListener('click', () => {
+      $('uaInput').value = navigator.userAgent;
+      $('uaInput').dispatchEvent(new Event('input'));
+    });
+
+    // 示例
+    const SAMPLES = [
+      ['Chrome (Win)', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'],
+      ['Edge (Win)', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Edg/126.0.0.0'],
+      ['Safari (Mac)', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15'],
+      ['iPhone Safari', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1'],
+      ['Android Chrome', 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36'],
+      ['WeChat', 'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/116.0.0.0 Mobile Safari/537.36 MicroMessenger/8.0.49'],
+      ['Baiduspider', 'Mozilla/5.0 (compatible; Baiduspider/2.0; +http://www.baidu.com/search/spider.html)'],
+      ['curl', 'curl/8.4.0'],
+    ];
+    const sampleWrap = $('uaSamples');
+    SAMPLES.forEach(([name, ua]) => {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'chip';
+      chip.textContent = name;
+      chip.addEventListener('click', () => {
+        $('uaInput').value = ua;
+        $('uaInput').dispatchEvent(new Event('input'));
+      });
+      sampleWrap.appendChild(chip);
+    });
+  </script>
+</body>
+</html>

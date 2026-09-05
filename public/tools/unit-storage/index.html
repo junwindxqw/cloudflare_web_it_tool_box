@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>存储单位换算 - Web IT Tool Box</title>
+  <meta name="description" content="在线存储容量与带宽换算：B/KB/MB/GB/TB 与 KiB/MiB/GiB/TiB 双体系换算，附带带宽 Mbps 与下载速度换算。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💾</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / 存储单位换算</div>
+      <h1><span class="icon-tile cat-ops">💾</span>存储单位换算</h1>
+      <p class="sub">十进制（1KB=1000B）与二进制（1KiB=1024B）两套体系同时换算，另有带宽换算。</p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>容量换算</div>
+      <div class="unit-switch">
+        <input type="text" id="storInput" class="mono" value="100" style="width:160px;" autocomplete="off" spellcheck="false">
+        <select id="storUnit" style="width:auto;">
+          <option value="B">B（字节）</option>
+          <option value="KB">KB（10³）</option>
+          <option value="MB" selected>MB（10⁶）</option>
+          <option value="GB">GB（10⁹）</option>
+          <option value="TB">TB（10¹²）</option>
+          <option value="PB">PB（10¹⁵）</option>
+          <option value="KiB">KiB（2¹⁰）</option>
+          <option value="MiB">MiB（2²⁰）</option>
+          <option value="GiB">GiB（2³⁰）</option>
+          <option value="TiB">TiB（2⁴⁰）</option>
+          <option value="PiB">PiB（2⁵⁰）</option>
+        </select>
+      </div>
+
+      <div class="result-list" style="margin-top:16px;">
+        <div class="panel-title" style="margin:6px 0 2px;">十进制体系（1 KB = 1000 B）</div>
+        <div class="result-list" id="decRows"></div>
+        <div class="panel-title" style="margin:14px 0 2px;">二进制体系（1 KiB = 1024 B）</div>
+        <div class="result-list" id="binRows"></div>
+      </div>
+      <p class="hint">硬盘 / U 盘标称容量按十进制计算；操作系统显示的容量多按二进制计算，这就是「1TB 硬盘只显示 931GB」的原因。</p>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>带宽换算</div>
+      <div class="unit-switch">
+        <input type="text" id="bwInput" class="mono" value="100" style="width:130px;" autocomplete="off" spellcheck="false">
+        <span class="field-label" style="margin:0;">Mbps（兆比特/秒）</span>
+      </div>
+      <div class="result-list" id="bwRows" style="margin-top:16px;">
+        <div class="result-row">
+          <span class="r-label">实际下载速度</span>
+          <span class="r-value" id="bwMBs">—</span>
+        </div>
+        <div class="result-row">
+          <span class="r-label">1 分钟下载</span>
+          <span class="r-value" id="bwMin">—</span>
+        </div>
+        <div class="result-row">
+          <span class="r-label">1 小时下载</span>
+          <span class="r-value" id="bwHour">—</span>
+        </div>
+      </div>
+      <p class="hint">1 Byte = 8 bit，因此 100 Mbps 带宽理论下载速度为 12.5 MB/s（实际再打八折左右）。</p>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    const DEC = { B: 1, KB: 1e3, MB: 1e6, GB: 1e9, TB: 1e12, PB: 1e15 };
+    const BIN = { B: 1, KiB: 1024, MiB: 1024 ** 2, GiB: 1024 ** 3, TiB: 1024 ** 4, PiB: 1024 ** 5 };
+
+    function fmtBytes(bytes) {
+      // 用 4 位有效数字展示，避免超长小数
+      if (!isFinite(bytes)) return '—';
+      const abs = Math.abs(bytes);
+      if (abs >= 1e15) return (bytes / 1e15).toPrecision(4) + ' PB';
+      if (abs >= 1e12) return (bytes / 1e12).toPrecision(4) + ' TB';
+      if (abs >= 1e9) return (bytes / 1e9).toPrecision(4) + ' GB';
+      if (abs >= 1e6) return (bytes / 1e6).toPrecision(4) + ' MB';
+      if (abs >= 1e3) return (bytes / 1e3).toPrecision(4) + ' KB';
+      return String(Math.round(bytes)) + ' B';
+    }
+
+    function fmtBin(bytes) {
+      if (!isFinite(bytes)) return '—';
+      const abs = Math.abs(bytes);
+      if (abs >= 1024 ** 5) return (bytes / 1024 ** 5).toPrecision(4) + ' PiB';
+      if (abs >= 1024 ** 4) return (bytes / 1024 ** 4).toPrecision(4) + ' TiB';
+      if (abs >= 1024 ** 3) return (bytes / 1024 ** 3).toPrecision(4) + ' GiB';
+      if (abs >= 1024 ** 2) return (bytes / 1024 ** 2).toPrecision(4) + ' MiB';
+      if (abs >= 1024) return (bytes / 1024).toPrecision(4) + ' KiB';
+      return String(Math.round(bytes)) + ' B';
+    }
+
+    function buildRows(container, units, bytes, fmt) {
+      container.innerHTML = '';
+      Object.entries(units).forEach(([u, factor]) => {
+        const row = document.createElement('div');
+        row.className = 'result-row';
+        const val = bytes / factor;
+        row.innerHTML =
+          `<span class="r-label" style="width:70px;">${u}</span>` +
+          `<span class="r-value">${fmt(val)}</span>`;
+        container.appendChild(row);
+      });
+    }
+
+    function calcStorage() {
+      const v = parseFloat($('storInput').value);
+      const unit = $('storUnit').value;
+      const rowsDec = $('decRows');
+      const rowsBin = $('binRows');
+      if (isNaN(v)) { rowsDec.innerHTML = ''; rowsBin.innerHTML = ''; return; }
+      const factor = DEC[unit] !== undefined ? DEC[unit] : BIN[unit];
+      const bytes = v * factor;
+
+      // 当前单位所在体系优先展示为高亮
+      buildRows(rowsDec, DEC, bytes, fmtBytes);
+      buildRows(rowsBin, BIN, bytes, fmtBin);
+    }
+
+    function calcBandwidth() {
+      const mbps = parseFloat($('bwInput').value);
+      if (isNaN(mbps) || mbps <= 0) {
+        $('bwMBs').textContent = '—'; $('bwMin').textContent = '—'; $('bwHour').textContent = '—';
+        return;
+      }
+      const bytesPerSec = mbps * 1e6 / 8;
+      $('bwMBs').textContent = fmtBytes(bytesPerSec) + ' / 秒';
+      $('bwMin').textContent = fmtBytes(bytesPerSec * 60);
+      $('bwHour').textContent = fmtBytes(bytesPerSec * 3600);
+    }
+
+    $('storInput').addEventListener('input', calcStorage);
+    $('storUnit').addEventListener('change', calcStorage);
+    $('bwInput').addEventListener('input', calcBandwidth);
+
+    calcStorage();
+    calcBandwidth();
+  </script>
+</body>
+</html>

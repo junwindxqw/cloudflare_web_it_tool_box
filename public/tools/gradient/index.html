@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CSS 渐变生成 - Web IT Tool Box</title>
+  <meta name="description" content="在线 CSS 渐变生成器：线性 / 径向渐变，自定义颜色断点与角度，实时预览并复制 CSS 代码。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌈</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / CSS 渐变生成</div>
+      <h1><span class="icon-tile cat-design">🌈</span>CSS 渐变生成</h1>
+      <p class="sub">可视化配置线性 / 径向渐变，实时预览并生成 CSS 代码。</p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>预览</div>
+      <div class="swatch" id="gradPreview" style="height:180px;"><span id="gradCssInline"></span></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>参数</div>
+
+      <div class="unit-switch">
+        <span class="field-label" style="margin:0;">类型：</span>
+        <label class="radio-label"><input type="radio" name="gradType" value="linear" checked> 线性</label>
+        <label class="radio-label"><input type="radio" name="gradType" value="radial"> 径向</label>
+      </div>
+
+      <div id="gradAngleRow">
+        <div class="range-row" style="margin-top:12px;">
+          <label for="gradAngle">角度</label>
+          <input type="range" id="gradAngle" min="0" max="360" value="135">
+          <span class="range-val" id="gradAngleVal">135°</span>
+        </div>
+      </div>
+
+      <div class="field-label">起止颜色</div>
+      <div class="unit-switch">
+        <input type="color" id="gradC1" value="#3b82f6" style="width:52px;height:34px;padding:2px;cursor:pointer;">
+        <input type="color" id="gradC2" value="#ec4899" style="width:52px;height:34px;padding:2px;cursor:pointer;">
+        <label class="radio-label"><input type="checkbox" id="gradMid"> 启用中间色</label>
+        <input type="color" id="gradC3" value="#22d3ee" style="width:52px;height:34px;padding:2px;cursor:pointer;display:none;">
+      </div>
+
+      <div class="range-row" style="margin-top:12px;">
+        <label for="gradPos1">色标 1</label>
+        <input type="range" id="gradPos1" min="0" max="100" value="0">
+        <span class="range-val" id="gradPos1Val">0%</span>
+      </div>
+      <div class="range-row" id="gradPosMidRow" style="margin-top:10px;display:none;">
+        <label for="gradPos3">色标 2</label>
+        <input type="range" id="gradPos3" min="0" max="100" value="50">
+        <span class="range-val" id="gradPos3Val">50%</span>
+      </div>
+      <div class="range-row" style="margin-top:10px;">
+        <label for="gradPos2">色标 3</label>
+        <input type="range" id="gradPos2" min="0" max="100" value="100">
+        <span class="range-val" id="gradPos2Val">100%</span>
+      </div>
+      <p class="hint">色标按位置自动排序后输出。</p>
+
+      <div class="btn-row">
+        <button class="btn" id="btnGradRand">🎲 随机配色</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>CSS 代码 <button class="copy-btn" data-copy-input="gradCss" style="margin-left:auto;">复制</button></div>
+      <div class="json-output" id="gradCss" style="min-height:auto;max-height:200px;"></div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.copy-btn');
+      if (!btn) return;
+      const src = $(btn.dataset.copyInput);
+      const text = src ? src.textContent : '';
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        toast('已复制到剪贴板');
+      } catch {
+        toast('复制失败，请手动选择复制');
+      }
+      btn.classList.add('copied');
+      setTimeout(() => btn.classList.remove('copied'), 1200);
+    });
+
+    function buildCss() {
+      const type = document.querySelector('input[name="gradType"]:checked').value;
+      const angle = Number($('gradAngle').value);
+      const c1 = $('gradC1').value;
+      const c2 = $('gradC2').value;
+      const mid = $('gradMid').checked;
+      const c3 = $('gradC3').value;
+      const p1 = Number($('gradPos1').value);
+      const p2 = Number($('gradPos2').value);
+      const p3 = Number($('gradPos3').value);
+
+      const stops = [{ c: c1, p: p1 }, { c: c2, p: p2 }];
+      if (mid) stops.push({ c: c3, p: p3 });
+      stops.sort((a, b) => a.p - b.p);
+      const stopsStr = stops.map(s => `${s.c} ${s.p}%`).join(', ');
+
+      return type === 'linear'
+        ? `background: linear-gradient(${angle}deg, ${stopsStr});`
+        : `background: radial-gradient(circle at 50% 50%, ${stopsStr});`;
+    }
+
+    function render() {
+      const css = buildCss();
+      $('gradPreview').style.background = css.replace(/^background:\s*/, '').replace(/;$/, '');
+      $('gradCssInline').textContent = '';
+      $('gradCss').textContent = css;
+
+      $('gradAngleRow').style.display =
+        document.querySelector('input[name="gradType"]:checked').value === 'linear' ? '' : 'none';
+      $('gradAngleVal').textContent = $('gradAngle').value + '°';
+      $('gradPos1Val').textContent = $('gradPos1').value + '%';
+      $('gradPos2Val').textContent = $('gradPos2').value + '%';
+      $('gradPos3Val').textContent = $('gradPos3').value + '%';
+      const mid = $('gradMid').checked;
+      $('gradC3').style.display = mid ? '' : 'none';
+      $('gradPosMidRow').style.display = mid ? '' : 'none';
+    }
+
+    [
+      'gradAngle', 'gradPos1', 'gradPos2', 'gradPos3', 'gradC1', 'gradC2', 'gradC3'
+    ].forEach(id => $(id).addEventListener('input', render));
+    $('gradMid').addEventListener('change', render);
+    document.querySelectorAll('input[name="gradType"]').forEach(r => r.addEventListener('change', render));
+
+    $('btnGradRand').addEventListener('click', () => {
+      const rand = () => '#' + Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0');
+      $('gradC1').value = rand();
+      $('gradC2').value = rand();
+      $('gradC3').value = rand();
+      $('gradAngle').value = Math.floor(Math.random() * 360);
+      render();
+    });
+
+    render();
+  </script>
+</body>
+</html>

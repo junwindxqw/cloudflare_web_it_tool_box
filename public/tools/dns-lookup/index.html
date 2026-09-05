@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DNS 记录查询 - Web IT Tool Box</title>
+  <meta name="description" content="在线 DNS 记录查询：通过 Cloudflare DoH 公共接口查询 A / AAAA / CNAME / MX / NS / TXT / SOA / CAA 记录，支持存活检测常用域名。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛰️</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / DNS 记录查询</div>
+      <h1><span class="icon-tile cat-ops">🛰️</span>DNS 记录查询</h1>
+      <p class="sub">通过 Cloudflare 的 DNS-over-HTTPS 公共接口查询记录。查询的域名会发送给 1.1.1.1 的 DoH 服务，除此之外无任何数据上报。</p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>查询</div>
+      <div class="unit-switch">
+        <input type="text" id="dnsName" class="mono" value="cloudflare.com" placeholder="要查询的域名，如 example.com" autocomplete="off" spellcheck="false" style="flex:1;">
+        <select id="dnsType" style="width:auto;">
+          <option value="A" selected>A（IPv4 地址）</option>
+          <option value="AAAA">AAAA（IPv6 地址）</option>
+          <option value="CNAME">CNAME（别名）</option>
+          <option value="MX">MX（邮件交换）</option>
+          <option value="NS">NS（域名服务器）</option>
+          <option value="TXT">TXT（文本记录）</option>
+          <option value="SOA">SOA（权威起始）</option>
+          <option value="CAA">CAA（证书颁发授权）</option>
+          <option value="SRV">SRV（服务定位）</option>
+        </select>
+        <button class="btn primary" id="btnDnsQuery">🔍 查询</button>
+      </div>
+      <p class="hint" id="dnsHint"></p>
+    </section>
+
+    <section class="panel" id="dnsResultPanel" hidden>
+      <div class="panel-title"><span class="dot"></span>结果 <span class="stat-bar" style="margin:0;" id="dnsMeta"></span></div>
+      <div style="overflow-x:auto;">
+        <table class="char-table" id="dnsTable">
+          <thead><tr id="dnsHead"></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>快速查询</div>
+      <div class="chips" id="dnsQuick"></div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    const STATUS_TEXT = {
+      0: 'NOERROR — 查询成功',
+      1: 'FORMERR — 请求格式错误',
+      2: 'SERVFAIL — 服务器失败',
+      3: 'NXDOMAIN — 域名不存在',
+      5: 'REFUSED — 查询被拒绝',
+    };
+
+    // 不同记录类型的展示列
+    const COLUMNS = {
+      A: ['名称', 'IPv4 地址', 'TTL'],
+      AAAA: ['名称', 'IPv6 地址', 'TTL'],
+      CNAME: ['名称', '指向', 'TTL'],
+      MX: ['邮件服务器', '优先级', 'TTL'],
+      NS: ['域名服务器', '', 'TTL'],
+      TXT: ['文本内容', '', 'TTL'],
+      SOA: ['主 DNS', '管理员邮箱', 'TTL'],
+      CAA: ['值', '标志 / 标签', 'TTL'],
+      SRV: ['目标', '优先级 / 权重 / 端口', 'TTL'],
+    };
+
+    async function dohQuery(name, type) {
+      const endpoints = [
+        'https://cloudflare-dns.com/dns-query?name=' + encodeURIComponent(name) + '&type=' + type,
+        'https://dns.google/resolve?name=' + encodeURIComponent(name) + '&type=' + type,
+      ];
+      let lastErr;
+      for (const url of endpoints) {
+        try {
+          // 10s 超时，避免网络异常时无限等待
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 10000);
+          let resp;
+          try {
+            resp = await fetch(url, { headers: { accept: 'application/dns-json' }, signal: controller.signal });
+          } finally {
+            clearTimeout(timer);
+          }
+          if (!resp.ok) throw new Error('HTTP ' + resp.status);
+          return await resp.json();
+        } catch (e) {
+          lastErr = e;
+        }
+      }
+      throw lastErr || new Error('查询失败');
+    }
+
+    function cellText(answer) {
+      // 各类型记录主要数据的提取
+      const d = answer.data;
+      switch (answer.type) {
+        case 1: return d;                          // A
+        case 28: return d;                         // AAAA
+        case 5: return d;                          // CNAME
+        case 15: return d;                         // MX "10 mail.example.com"
+        case 2: return d;                          // NS
+        case 16: return d.replace(/^"|"$/g, '');   // TXT 去引号
+        case 6: return d;                          // SOA
+        case 257: return d;                        // CAA
+        case 33: return d;                         // SRV
+        default: return d;
+      }
+    }
+
+    function renderResult(name, type, json, elapsed) {
+      const panel = $('dnsResultPanel');
+      const head = $('dnsHead');
+      const tbody = $('dnsTable').querySelector('tbody');
+      const hint = $('dnsHint');
+      const meta = $('dnsMeta');
+      panel.hidden = false;
+      tbody.innerHTML = '';
+
+      const statusText = STATUS_TEXT[json.Status] || ('Status ' + json.Status);
+      const answers = json.Answer || [];
+
+      if (json.Status !== 0 || !answers.length) {
+        head.innerHTML = '<th>查询结果</th>';
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${statusText}${json.Status === 0 ? '（该类型无记录）' : ''}</td>`;
+        tbody.appendChild(tr);
+        meta.innerHTML = `<span>耗时 ${elapsed}ms</span>`;
+        hint.textContent = '';
+        return;
+      }
+
+      const cols = COLUMNS[type] || ['数据', '', 'TTL'];
+      head.innerHTML = cols.map(c => `<th>${c}</th>`).join('');
+
+      answers.forEach(a => {
+        const main = cellText(a);
+        const tr = document.createElement('tr');
+        let c1 = main, c2 = '';
+        if (type === 'MX') {
+          const m = main.match(/^(\d+)\s+(.+)$/);
+          if (m) { c2 = '优先级 ' + m[1]; c1 = m[2]; }
+        } else if (type === 'SOA') {
+          const parts = main.split(/\s+/);
+          c1 = parts[0] || main;
+          c2 = parts[1] || '';
+        } else if (type === 'SRV') {
+          const m = main.match(/^(\d+)\s+(\d+)\s+(\d+)\s+(.+)$/);
+          if (m) { c2 = `${m[1]} / ${m[2]} / ${m[3]}`; c1 = m[4]; }
+        } else if (type === 'CAA') {
+          const m = main.match(/^(\d+)\s+(\S+)\s+"?(.+?)"?$/);
+          if (m) { c1 = m[3]; c2 = `${m[1]} / ${m[2]}`; }
+        }
+        const ttl = a.TTL != null ? a.TTL + 's' : '—';
+        tr.innerHTML = `<td style="word-break:break-all;">${c1}</td><td>${c2}</td><td>${ttl}</td>`;
+        tbody.appendChild(tr);
+      });
+
+      meta.innerHTML =
+        `<span>${statusText}</span>` +
+        `<span>耗时 ${elapsed}ms</span>` +
+        (json.Authority ? `<span>权威服务器 ${json.Authority.length} 条</span>` : '');
+      hint.textContent = '';
+    }
+
+    async function query() {
+      const name = $('dnsName').value.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+      const type = $('dnsType').value;
+      const hint = $('dnsHint');
+      if (!name) {
+        hint.textContent = '请输入要查询的域名。';
+        hint.classList.add('err');
+        return;
+      }
+      $('btnDnsQuery').disabled = true;
+      hint.classList.remove('err');
+      hint.textContent = '查询中…';
+      const start = performance.now();
+      try {
+        const json = await dohQuery(name, type);
+        renderResult(name, type, json, Math.round(performance.now() - start));
+      } catch (e) {
+        hint.textContent = '查询失败：' + (e.message || '网络不可达') + '。请检查网络或稍后重试。';
+        hint.classList.add('err');
+        $('dnsResultPanel').hidden = true;
+      } finally {
+        $('btnDnsQuery').disabled = false;
+      }
+    }
+
+    $('btnDnsQuery').addEventListener('click', query);
+    $('dnsName').addEventListener('keydown', (e) => { if (e.key === 'Enter') query(); });
+
+    // 快速查询
+    const QUICK = ['cloudflare.com', 'github.com', 'google.com', 'baidu.com', 'junwind.site'];
+    const quickWrap = $('dnsQuick');
+    QUICK.forEach(name => {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'chip';
+      chip.textContent = name;
+      chip.addEventListener('click', () => {
+        $('dnsName').value = name;
+        query();
+      });
+      quickWrap.appendChild(chip);
+    });
+
+    query();
+  </script>
+</body>
+</html>

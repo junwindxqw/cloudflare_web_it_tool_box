@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>cURL 命令转代码 - Web IT Tool Box</title>
+  <meta name="description" content="在线把 cURL 命令转换为 fetch / axios / Python requests 代码，解析方法、请求头与请求体，全部本地处理。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌀</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / cURL 命令转代码</div>
+      <h1><span class="icon-tile cat-qa">🌀</span>cURL 命令转代码</h1>
+      <p class="sub">粘贴 curl 命令，解析出方法 / 请求头 / 请求体，生成 fetch、axios 与 Python requests 代码。</p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>cURL 命令</div>
+      <textarea id="curlIn" class="json-input" style="min-height:140px;" placeholder="curl -X POST https://api.example.com/users -H 'Content-Type: application/json' -d '{&quot;name&quot;:&quot;test&quot;}'" spellcheck="false"></textarea>
+      <p class="hint" id="curlHint">支持 -X 方法、-H 头、-d/--data 请求体、-u 认证、--get 等常用参数；换行反斜杠写法也可以。</p>
+    </section>
+
+    <section class="panel" id="curlParsedPanel" hidden>
+      <div class="panel-title"><span class="dot"></span>解析出的请求要素</div>
+      <div class="result-list" id="curlParsed"></div>
+    </section>
+
+    <section class="panel" id="curlOutPanel" hidden>
+      <div class="panel-title"><span class="dot"></span>生成代码</div>
+      <div class="seg" id="langSeg">
+        <button type="button" data-lang="fetch" class="active">fetch</button>
+        <button type="button" data-lang="axios">axios</button>
+        <button type="button" data-lang="python">Python requests</button>
+        <button type="button" data-lang="go">Go net/http</button>
+      </div>
+      <div class="json-output" id="codeOut" style="margin-top:12px;"></div>
+      <div class="btn-row">
+        <button class="btn" id="btnCodeCopy">📋 复制代码</button>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    /* ---------- 命令行分词（支持单双引号与反斜杠转义） ---------- */
+    function tokenize(cmd) {
+      const tokens = [];
+      let cur = '';
+      let has = false;
+      let i = 0;
+      while (i < cmd.length) {
+        const ch = cmd[i];
+        if (ch === '\\' && i + 1 < cmd.length) {
+          cur += cmd[i + 1]; i += 2; continue;
+        }
+        if (ch === "'") {
+          let j = i + 1;
+          while (j < cmd.length && cmd[j] !== "'") { cur += cmd[j]; j++; }
+          i = j + 1; has = true; continue;
+        }
+        if (ch === '"') {
+          let j = i + 1;
+          while (j < cmd.length && cmd[j] !== '"') {
+            if (cmd[j] === '\\' && j + 1 < cmd.length && '"\\$`'.includes(cmd[j + 1])) { cur += cmd[j + 1]; j += 2; }
+            else { cur += cmd[j]; j++; }
+          }
+          i = j + 1; has = true; continue;
+        }
+        if (/\s/.test(ch)) {
+          if (cur || has) { tokens.push(cur); cur = ''; has = false; }
+          i++; continue;
+        }
+        cur += ch; i++;
+      }
+      if (cur || has) tokens.push(cur);
+      return tokens;
+    }
+
+    function parseCurl(cmd) {
+      // 去掉行尾续行符与开头的 curl
+      const cleaned = cmd.replace(/\\\n/g, ' ').replace(/\r/g, '');
+      const tokens = tokenize(cleaned).filter(t => t !== 'curl');
+      const req = { method: null, url: null, headers: {}, data: null, auth: null, get: false };
+
+      for (let i = 0; i < tokens.length; i++) {
+        const t = tokens[i];
+        const next = () => tokens[i + 1];
+        if (t === '-X' || t === '--request') { req.method = next(); i++; }
+        else if (t === '-H' || t === '--header') {
+          const h = next() || '';
+          const idx = h.indexOf(':');
+          if (idx > 0) req.headers[h.slice(0, idx).trim()] = h.slice(idx + 1).trim();
+          i++;
+        }
+        else if (t === '-d' || t === '--data' || t === '--data-raw' || t === '--data-ascii' || t === '--data-binary') {
+          req.data = next();
+          i++;
+        }
+        else if (t === '-u' || t === '--user') { req.auth = next(); i++; }
+        else if (t === '--get' || t === '-G') { req.get = true; }
+        else if (t === '-F' || t === '--form') {
+          req.data = req.data ? req.data : next(); // 简化处理
+          req.headers['Content-Type'] = req.headers['Content-Type'] || 'multipart/form-data';
+          i++;
+        }
+        else if (t === '-L' || t === '--compressed' || t === '-s' || t === '--silent' || t === '-k' || t === '--insecure' || t === '-v' || t === '--verbose' || t === '-i' || t === '--include') {
+          // 忽略的标志
+        }
+        else if (t === '-o' || t === '--output') { i++; }
+        else if (!t.startsWith('-') && !req.url) {
+          req.url = t;
+        }
+      }
+
+      // -G 时 data 变为查询参数（简化：保持 body 提示）
+      if (!req.method) req.method = req.data !== null ? 'POST' : 'GET';
+      return req;
+    }
+
+    function jsStr(s) {
+      return "'" + String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n') + "'";
+    }
+
+    function pyStr(s) {
+      // Python: 优先用单引号，内含单引号则用双引号
+      if (!String(s).includes("'")) return "'" + s + "'";
+      return '"' + String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+    }
+
+    function genCode(req, lang) {
+      const url = req.url || '';
+      const method = (req.method || 'GET').toUpperCase();
+      const headerEntries = Object.entries(req.headers);
+      const hasBody = req.data !== null && method !== 'GET' && method !== 'HEAD';
+
+      if (lang === 'fetch') {
+        let code = '';
+        if (hasBody) code += 'const body = ' + jsStr(req.data) + ';\n\n';
+        code += 'const response = await fetch(' + jsStr(url) + ', {\n';
+        code += '  method: ' + jsStr(method) + ',\n';
+        if (headerEntries.length) {
+          code += '  headers: {\n';
+          headerEntries.forEach(([k, v]) => { code += '    ' + jsStr(k) + ': ' + jsStr(v) + ',\n'; });
+          code += '  },\n';
+        }
+        if (hasBody) code += '  body,\n';
+        code += '});\n\n';
+        code += 'if (!response.ok) throw new Error(`HTTP ${response.status}`);\n';
+        code += 'const data = await response.json();\nconsole.log(data);';
+        return code;
+      }
+
+      if (lang === 'axios') {
+        let code = 'const response = await axios({\n';
+        code += '  method: ' + jsStr(method.toLowerCase()) + ',\n';
+        code += '  url: ' + jsStr(url) + ',\n';
+        if (headerEntries.length) {
+          code += '  headers: {\n';
+          headerEntries.forEach(([k, v]) => { code += '    ' + jsStr(k) + ': ' + jsStr(v) + ',\n'; });
+          code += '  },\n';
+        }
+        if (hasBody) code += '  data: ' + jsStr(req.data) + ',\n';
+        code += '});\n\nconsole.log(response.data);';
+        return code;
+      }
+
+      if (lang === 'python') {
+        let code = 'import requests\n\n';
+        code += 'response = requests.' + method.toLowerCase() + '(\n';
+        code += '    ' + pyStr(url) + ',\n';
+        if (headerEntries.length) {
+          code += '    headers={\n';
+          headerEntries.forEach(([k, v]) => { code += '        ' + pyStr(k) + ': ' + pyStr(v) + ',\n'; });
+          code += '    },\n';
+        }
+        if (hasBody) code += '    data=' + pyStr(req.data) + ',\n';
+        code += ')\n\n';
+        code += 'response.raise_for_status()\nprint(response.json())';
+        return code;
+      }
+
+      // Go
+      let code = 'package main\n\nimport (\n\t"fmt"\n\t"io"\n\t"net/http"\n\t"strings"\n)\n\n';
+      code += 'func main() {\n';
+      if (hasBody) code += '\tbody := strings.NewReader(' + goStr(req.data) + ')\n\treq, err := http.NewRequest(' + goStr(method) + ', ' + goStr(url) + ', body)\n';
+      else code += '\treq, err := http.NewRequest(' + goStr(method) + ', ' + goStr(url) + ', nil)\n';
+      code += '\tif err != nil {\n\t\tpanic(err)\n\t}\n';
+      headerEntries.forEach(([k, v]) => { code += '\treq.Header.Set(' + goStr(k) + ', ' + goStr(v) + ')\n'; });
+      code += '\tresp, err := http.DefaultClient.Do(req)\n\tif err != nil {\n\t\tpanic(err)\n\t}\n\tdefer resp.Body.Close()\n\n\tdata, _ := io.ReadAll(resp.Body)\n\tfmt.Println(string(data))\n}';
+      return code;
+    }
+
+    function goStr(s) {
+      return '"' + String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n') + '"';
+    }
+
+    let currentReq = null;
+    let currentLang = 'fetch';
+
+    function renderAll() {
+      const cmd = $('curlIn').value.trim();
+      const hint = $('curlHint');
+      if (!cmd) {
+        $('curlParsedPanel').hidden = true;
+        $('curlOutPanel').hidden = true;
+        hint.classList.remove('err');
+        hint.textContent = '支持 -X 方法、-H 头、-d/--data 请求体、-u 认证、--get 等常用参数；换行反斜杠写法也可以。';
+        return;
+      }
+      try {
+        currentReq = parseCurl(cmd);
+        if (!currentReq.url) throw new Error('未找到 URL');
+      } catch (e) {
+        hint.textContent = '解析失败：' + (e.message || e);
+        hint.classList.add('err');
+        $('curlParsedPanel').hidden = true;
+        $('curlOutPanel').hidden = true;
+        return;
+      }
+
+      hint.classList.remove('err');
+      hint.textContent = '解析成功。';
+      const rows = $('curlParsed');
+      rows.innerHTML = '';
+      const addRow = (label, value) => {
+        const row = document.createElement('div');
+        row.className = 'result-row';
+        row.innerHTML =
+          `<span class="r-label" style="width:100px;">${label}</span>` +
+          `<span class="r-value">${String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;')}</span>`;
+        rows.appendChild(row);
+      };
+      addRow('URL', currentReq.url);
+      addRow('方法', currentReq.method);
+      const hKeys = Object.keys(currentReq.headers);
+      addRow('请求头', hKeys.length ? hKeys.map(k => `${k}: ${currentReq.headers[k]}`).join('；') : '（无）');
+      addRow('请求体', currentReq.data !== null ? String(currentReq.data).slice(0, 400) : '（无）');
+      if (currentReq.auth) addRow('认证', currentReq.auth);
+      $('curlParsedPanel').hidden = false;
+      $('curlOutPanel').hidden = false;
+      $('codeOut').textContent = genCode(currentReq, currentLang);
+    }
+
+    $('curlIn').addEventListener('input', () => {
+      clearTimeout(window.__curlTimer);
+      window.__curlTimer = setTimeout(renderAll, 200);
+    });
+
+    $('langSeg').addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      currentLang = btn.dataset.lang;
+      $('langSeg').querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
+      if (currentReq) $('codeOut').textContent = genCode(currentReq, currentLang);
+    });
+
+    $('btnCodeCopy').addEventListener('click', async () => {
+      const code = $('codeOut').textContent;
+      if (!code) return;
+      try {
+        await navigator.clipboard.writeText(code);
+        toast('已复制代码');
+      } catch { toast('复制失败，请手动选择复制'); }
+    });
+
+    // 默认示例
+    $('curlIn').value = "curl -X POST 'https://httpbin.org/post?source=curl2fetch' \\\n  -H 'Content-Type: application/json' \\\n  -H 'Authorization: Bearer eyJhbGciOi...' \\\n  -d '{\"name\": \"张三\", \"tags\": [\"a\", \"b\"]}'";
+    renderAll();
+  </script>
+</body>
+</html>

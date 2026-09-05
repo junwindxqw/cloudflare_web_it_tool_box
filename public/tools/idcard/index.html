@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>身份证号校验 - Web IT Tool Box</title>
+  <meta name="description" content="身份证号码在线校验：校验 18/15 位格式、行政区划码、出生日期与 ISO 7064 校验位，支持 15 位升 18 位，纯本地计算，不查询任何数据库。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🪪</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / 身份证号校验</div>
+      <h1><span class="icon-tile cat-qa">🪪</span>身份证号校验</h1>
+      <p class="sub">校验格式、行政区划、出生日期与校验位（ISO 7064 MOD 11-2），仅本地计算，不查询任何数据库，请勿输入真实证件号。</p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>输入号码</div>
+      <input type="text" id="idInput" class="mono" placeholder="18 位或 15 位身份证号（建议使用测试号码）" autocomplete="off" spellcheck="false" maxlength="18">
+      <p class="hint">校验规则均为公开国家标准算法；结果仅代表号码本身合法，不代表真实存在。</p>
+    </section>
+
+    <section class="panel" id="idResult" hidden>
+      <div class="panel-title"><span class="dot"></span>校验结果 <span id="idVerdict"></span></div>
+      <div class="result-list" id="idRows"></div>
+    </section>
+
+    <section class="panel" id="idConvertPanel" hidden>
+      <div class="panel-title"><span class="dot"></span>15 位升 18 位 <button class="copy-btn" data-copy-target="idUpgraded" style="margin-left:auto;">复制</button></div>
+      <div class="result-row">
+        <span class="r-value" id="idUpgraded">—</span>
+      </div>
+      <p class="hint">升位规则：6 位区号 + 「19」 + 出生年月日 + 3 位顺序码 + 按标准算法补的校验位。</p>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.copy-btn');
+      if (!btn) return;
+      const text = $(btn.dataset.copyTarget)?.textContent ?? '';
+      if (!text || text === '—') return;
+      try {
+        await navigator.clipboard.writeText(text);
+        toast('已复制到剪贴板');
+      } catch {
+        toast('复制失败，请手动选择复制');
+      }
+      btn.classList.add('copied');
+      setTimeout(() => btn.classList.remove('copied'), 1200);
+    });
+
+    /* ---------- 省级行政区划码（GB/T 2260 前两位） ---------- */
+    const PROVINCES = {
+      11: '北京市', 12: '天津市', 13: '河北省', 14: '山西省', 15: '内蒙古自治区',
+      21: '辽宁省', 22: '吉林省', 23: '黑龙江省',
+      31: '上海市', 32: '江苏省', 33: '浙江省', 34: '安徽省', 35: '福建省', 36: '江西省', 37: '山东省',
+      41: '河南省', 42: '湖北省', 43: '湖南省', 44: '广东省', 45: '广西壮族自治区', 46: '海南省',
+      50: '重庆市', 51: '四川省', 52: '贵州省', 53: '云南省', 54: '西藏自治区',
+      61: '陕西省', 62: '甘肃省', 63: '青海省', 64: '宁夏回族自治区', 65: '新疆维吾尔自治区',
+      71: '台湾省', 81: '香港特别行政区', 82: '澳门特别行政区',
+    };
+
+    function escapeHtml(s) {
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function addRow(label, ok, value) {
+      const row = document.createElement('div');
+      row.className = 'result-row';
+      row.innerHTML =
+        `<span class="r-label" style="width:110px;">${label}</span>` +
+        `<span class="r-value">${ok ? '✅' : '❌'} ${escapeHtml(value)}</span>`;
+      $('idRows').appendChild(row);
+    }
+
+    function checksum18(id17) {
+      const W = [7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2];
+      const CODES = '10X98765432';
+      let sum = 0;
+      for (let i = 0; i < 17; i++) sum += Number(id17[i]) * W[i];
+      return CODES[sum % 11];
+    }
+
+    function validDate(y, m, d) {
+      const date = new Date(y, m - 1, d);
+      if (date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d) return false;
+      return y >= 1800 && y <= new Date().getFullYear() && date <= new Date();
+    }
+
+    function upgrade15(id15) {
+      const body = id15.slice(0, 6) + '19' + id15.slice(6);
+      return body + checksum18(body);
+    }
+
+    function check() {
+      const raw = $('idInput').value.trim().toUpperCase();
+      $('idRows').innerHTML = '';
+      $('idVerdict').textContent = '';
+      $('idConvertPanel').hidden = true;
+
+      if (!raw) { $('idResult').hidden = true; return; }
+      $('idResult').hidden = false;
+
+      const is18 = /^\d{17}[\dX]$/.test(raw);
+      const is15 = /^\d{15}$/.test(raw);
+      let allOk = true;
+
+      if (!is18 && !is15) {
+        addRow('位数', false, is18 ? '' : (raw.length + ' 位，应为 18 位（或旧版 15 位）'));
+        $('idVerdict').innerHTML = '<span class="stat-bar"><span class="bad">校验未通过</span></span>';
+        return;
+      }
+      addRow('位数', true, is18 ? '18 位' : '15 位（旧版）');
+
+      // 行政区划
+      const provCode = Number(raw.slice(0, 2));
+      const provName = PROVINCES[provCode];
+      addRow('行政区划', !!provName, provName ? `${raw.slice(0, 6)}（${provName}）` : `前两位 ${raw.slice(0, 2)} 不是合法省级区划`);
+
+      // 出生日期
+      const year = is18 ? Number(raw.slice(6, 10)) : Number('19' + raw.slice(6, 8));
+      const month = Number(raw.slice(is18 ? 10 : 8, is18 ? 12 : 10));
+      const day = Number(raw.slice(is18 ? 12 : 10, is18 ? 14 : 12));
+      const dateOk = validDate(year, month, day);
+      addRow('出生日期', dateOk, dateOk ? `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}` : `${year}-${month}-${day} 不是有效日期`);
+
+      // 顺序码与性别
+      const seq = is18 ? raw.slice(14, 17) : raw.slice(12, 15);
+      const genderOdd = Number(seq[2]) % 2 === 1;
+      addRow('顺序码 / 性别', true, `${seq}（${genderOdd ? '男' : '女'}）`);
+
+      // 校验位（仅 18 位）
+      if (is18) {
+        const expect = checksum18(raw.slice(0, 17));
+        const ok = raw[17] === expect;
+        addRow('校验位', ok, ok ? `${raw[17]}（正确，ISO 7064 MOD 11-2）` : `${raw[17]}，应为 ${expect}`);
+        allOk = ok && dateOk && !!provName;
+      } else {
+        allOk = dateOk && !!provName;
+        $('idConvertPanel').hidden = false;
+        $('idUpgraded').textContent = upgrade15(raw);
+      }
+
+      $('idVerdict').innerHTML = allOk
+        ? '<span class="stat-bar"><span class="ok">✔ 号码格式与校验位均正确</span></span>'
+        : '<span class="stat-bar"><span class="bad">✘ 校验未通过</span></span>';
+    }
+
+    $('idInput').addEventListener('input', check);
+
+    // 默认示例（ GB/T 7714-1987 等公开测试号样式，非真实证件号）
+    $('idInput').value = '11010519491231002X';
+    check();
+  </script>
+</body>
+</html>

@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Markdown 预览 - Web IT Tool Box</title>
+  <meta name="description" content="在线 Markdown 实时预览：标题、列表、表格、代码块、引用等常用语法，左侧编辑右侧渲染，全部本地完成。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📝</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <style>
+    .md-preview {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 18px 20px;
+      min-height: 420px;
+      max-height: 640px;
+      overflow: auto;
+      font-size: 14.5px;
+      line-height: 1.75;
+      word-break: break-word;
+    }
+    .md-preview h1, .md-preview h2, .md-preview h3,
+    .md-preview h4, .md-preview h5, .md-preview h6 {
+      margin: 1.1em 0 0.5em;
+      line-height: 1.4;
+      font-weight: 700;
+    }
+    .md-preview h1 { font-size: 1.65em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+    .md-preview h2 { font-size: 1.4em; border-bottom: 1px solid var(--border); padding-bottom: 0.25em; }
+    .md-preview h3 { font-size: 1.2em; }
+    .md-preview h4 { font-size: 1.05em; }
+    .md-preview p { margin: 0.6em 0; }
+    .md-preview ul, .md-preview ol { margin: 0.6em 0; padding-left: 1.8em; }
+    .md-preview li { margin: 0.25em 0; }
+    .md-preview blockquote {
+      margin: 0.8em 0;
+      padding: 0.4em 1em;
+      border-left: 4px solid var(--accent);
+      background: var(--accent-soft);
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+      color: var(--text-2);
+    }
+    .md-preview code {
+      font-family: var(--mono);
+      font-size: 0.88em;
+      background: color-mix(in srgb, var(--accent) 12%, transparent);
+      padding: 0.15em 0.4em;
+      border-radius: 4px;
+    }
+    .md-preview pre {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px 14px;
+      overflow: auto;
+      margin: 0.8em 0;
+    }
+    .md-preview pre code { background: none; padding: 0; font-size: 13px; line-height: 1.65; }
+    .md-preview table { border-collapse: collapse; margin: 0.8em 0; width: 100%; }
+    .md-preview th, .md-preview td { border: 1px solid var(--border); padding: 6px 12px; text-align: left; }
+    .md-preview th { background: var(--surface); font-weight: 700; }
+    .md-preview hr { border: 0; border-top: 1px solid var(--border); margin: 1.2em 0; }
+    .md-preview img { max-width: 100%; border-radius: 6px; }
+    .md-preview a { word-break: break-all; }
+    .md-preview del { color: var(--muted); }
+  </style>
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / Markdown 预览</div>
+      <h1><span class="icon-tile cat-dev">📝</span>Markdown 预览</h1>
+      <p class="sub">左侧编辑、右侧实时渲染，支持标题 / 列表 / 表格 / 代码块等常用语法，纯本地渲染。原始 HTML 会被转义显示，不做注入。</p>
+    </div>
+
+    <section class="panel">
+      <div class="io-grid">
+        <div>
+          <div class="io-label"><span>Markdown 源文本</span><button class="btn btn-sm" id="btnMdClear">清空</button></div>
+          <textarea id="mdInput" class="json-input" style="min-height:420px;" placeholder="# 标题&#10;&#10;输入 **Markdown** 文本…" spellcheck="false"></textarea>
+        </div>
+        <div>
+          <div class="io-label"><span>渲染预览</span></div>
+          <div class="md-preview" id="mdPreview"></div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    function escapeHtml(s) {
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function escapeAttr(s) {
+      return escapeHtml(s).replace(/'/g, '%27');
+    }
+
+    /* ---------- 内联语法（在已转义文本上处理） ---------- */
+    function inlineMd(text) {
+      return text
+        .replace(/`([^`]+)`/g, (_, code) => `<code>${code}</code>`)
+        .replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;[^&]*&quot;)?\)/g,
+          (_, alt, src) => /^(https?:|\/|data:image\/)/.test(src) ? `<img src="${src}" alt="${alt}">` : `<em>[图片:${alt}]</em>`)
+        .replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+&quot;[^&]*&quot;)?\)/g,
+          (_, label, href) => /^(https?:|\/|#|mailto:)/.test(href) ? `<a href="${href}" target="_blank" rel="noopener">${label}</a>` : label)
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/__([^_]+)__/g, '<strong>$1</strong>')
+        .replace(/(^|[^*\w])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+        .replace(/(^|[^_\w])_([^_\n]+)_/g, '$1<em>$2</em>')
+        .replace(/~~([^~]+)~~/g, '<del>$1</del>');
+    }
+
+    /* ---------- 块级解析 ---------- */
+    function renderMarkdown(src) {
+      const lines = escapeHtml(src.replace(/\r\n?/g, '\n')).split('\n');
+      const out = [];
+      let i = 0;
+
+      const flushParagraph = (buf) => {
+        if (buf.length) out.push('<p>' + inlineMd(buf.join('<br>')) + '</p>');
+        buf.length = 0;
+      };
+
+      const para = [];
+
+      while (i < lines.length) {
+        const line = lines[i];
+
+        // 代码块 ```
+        const fence = line.match(/^```(\w*)\s*$/);
+        if (fence) {
+          flushParagraph(para);
+          const code = [];
+          i++;
+          while (i < lines.length && !/^```\s*$/.test(lines[i])) { code.push(lines[i]); i++; }
+          i++; // 跳过结束 ```
+          out.push(`<pre><code>${code.join('\n')}</code></pre>`);
+          continue;
+        }
+
+        // 标题
+        const h = line.match(/^(#{1,6})\s+(.*)$/);
+        if (h) {
+          flushParagraph(para);
+          const lv = h[1].length;
+          out.push(`<h${lv}>${inlineMd(h[2].replace(/\s+#+\s*$/, ''))}</h${lv}>`);
+          i++;
+          continue;
+        }
+
+        // 分隔线
+        if (/^\s{0,3}([-*_])\s*(?:\1\s*){2,}$/.test(line)) {
+          flushParagraph(para);
+          out.push('<hr>');
+          i++;
+          continue;
+        }
+
+        // 引用
+        if (/^&gt;\s?/.test(line) || /^>\s?/.test(line)) {
+          flushParagraph(para);
+          const quote = [];
+          while (i < lines.length && (/^&gt;\s?/.test(lines[i]) || /^>\s?/.test(lines[i]))) {
+            quote.push(lines[i].replace(/^(&gt;|>)\s?/, ''));
+            i++;
+          }
+          out.push('<blockquote>' + renderMarkdown(quote.join('\n')) + '</blockquote>');
+          continue;
+        }
+
+        // 表格： | a | b |  +  | --- | --- |
+        if (/^\s*\|.*\|\s*$/.test(line) && i + 1 < lines.length && /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i + 1]) && /-/.test(lines[i + 1])) {
+          flushParagraph(para);
+          const cells = (l) => l.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+          const heads = cells(line);
+          const aligns = cells(lines[i + 1]).map(c =>
+            /^:-+:$/.test(c) ? 'center' : /-+:$/.test(c) ? 'right' : /:-+/.test(c) ? 'left' : '');
+          i += 2;
+          let body = '<thead><tr>' + heads.map((c, k) =>
+            `<th${aligns[k] ? ` style="text-align:${aligns[k]}"` : ''}>${inlineMd(c)}</th>`).join('') + '</tr></thead><tbody>';
+          while (i < lines.length && /^\s*\|.*\|?\s*$/.test(lines[i]) && lines[i].includes('|')) {
+            const row = cells(lines[i]);
+            body += '<tr>' + heads.map((_, k) =>
+              `<td${aligns[k] ? ` style="text-align:${aligns[k]}"` : ''}>${inlineMd(row[k] ?? '')}</td>`).join('') + '</tr>';
+            i++;
+          }
+          out.push('<table>' + body + '</tbody></table>');
+          continue;
+        }
+
+        // 无序 / 有序列表（支持一层缩进嵌套）
+        const isUl = (l) => /^(\s*)[-*+]\s+(.*)$/.exec(l);
+        const isOl = (l) => /^(\s*)\d{1,9}[.)]\s+(.*)$/.exec(l);
+        if (isUl(line) || isOl(line)) {
+          flushParagraph(para);
+          const first = isUl(line) || isOl(line);
+          const ordered = !isUl(line);
+          const baseIndent = first[1].length;
+          const items = [];
+          while (i < lines.length) {
+            const m = isUl(lines[i]) || isOl(lines[i]);
+            const indent = lines[i].match(/^\s*/)[0].length;
+            if (m && indent <= baseIndent) {
+              if (indent < baseIndent) break; // 比当前层浅：交还上层处理
+              items.push({ text: m[2], sub: '' });
+              i++;
+            } else if (items.length && indent > baseIndent && lines[i].trim()) {
+              // 缩进更深的行归入上一个列表项（交给递归重新解析标记）
+              items[items.length - 1].sub += lines[i].replace(/^\s+/, '') + '\n';
+              i++;
+            } else break;
+          }
+          const tag = ordered ? 'ol' : 'ul';
+          out.push(`<${tag}>` + items.map(it =>
+            '<li>' + inlineMd(it.text) + (it.sub ? renderMarkdown(it.sub) : '') + '</li>').join('') + `</${tag}>`);
+          continue;
+        }
+
+        // 空行
+        if (/^\s*$/.test(line)) {
+          flushParagraph(para);
+          i++;
+          continue;
+        }
+
+        para.push(line);
+        i++;
+      }
+      flushParagraph(para);
+      return out.join('\n');
+    }
+
+    function render() {
+      $('mdPreview').innerHTML = renderMarkdown($('mdInput').value);
+    }
+
+    $('mdInput').addEventListener('input', render);
+    $('btnMdClear').addEventListener('click', () => { $('mdInput').value = ''; render(); $('mdInput').focus(); });
+
+    // 默认示例
+    $('mdInput').value = [
+      '# 标题一',
+      '',
+      '普通文本，**加粗**、*斜体*、~~删除线~~、`行内代码`。',
+      '',
+      '- 无序列表项 1',
+      '- 无序列表项 2',
+      '  - 嵌套项',
+      '',
+      '1. 有序列表项 1',
+      '2. 有序列表项 2',
+      '',
+      '> 引用块：Markdown 是一种轻量级标记语言。',
+      '',
+      '| 语法 | 示例 |',
+      '| :--- | ---: |',
+      '| 加粗 | `**文本**` |',
+      '| 链接 | `[ZCode](https://example.com)` |',
+      '',
+      '```js',
+      'console.log("Hello Markdown");',
+      '```',
+      '',
+      '---',
+      '',
+      '[链接示例](https://example.com)'
+    ].join('\n');
+    render();
+  </script>
+</body>
+</html>

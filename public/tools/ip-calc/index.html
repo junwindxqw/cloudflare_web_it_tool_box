@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IP 子网计算 - Web IT Tool Box</title>
+  <meta name="description" content="IPv4 子网计算器：输入 IP/CIDR 即得网络地址、广播地址、掩码、可用主机范围与数量，支持点分掩码输入。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌐</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / IP 子网计算</div>
+      <h1><span class="icon-tile cat-ops">🌐</span>IP 子网计算</h1>
+      <p class="sub">输入 IPv4 地址与 CIDR 前缀（或点分子网掩码），即时计算网络地址、可用范围等信息。</p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>输入</div>
+      <div class="unit-switch">
+        <input type="text" id="ipInput" class="mono" value="192.168.1.130/26" placeholder="例如：10.0.0.0/8 或 192.168.1.130/26" autocomplete="off" spellcheck="false" style="flex:1;">
+      </div>
+      <div class="unit-switch">
+        <span class="field-label" style="margin:0;">前缀长度：</span>
+        <input type="range" id="cidrRange" min="0" max="32" value="26" style="flex:1;">
+        <span class="range-val" id="cidrVal">/26</span>
+      </div>
+      <p class="hint" id="ipHint">输入格式：IP/前缀 或 IP/掩码（如 255.255.255.192），自动识别。</p>
+    </section>
+
+    <section class="panel" id="ipResult" hidden>
+      <div class="panel-title"><span class="dot"></span>计算结果</div>
+      <div class="result-list" id="ipRows"></div>
+      <p class="hint" id="ipType"></p>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.copy-btn');
+      if (!btn) return;
+      const text = $(btn.dataset.copyTarget)?.textContent ?? '';
+      if (!text || text === '—') return;
+      try {
+        await navigator.clipboard.writeText(text);
+        toast('已复制到剪贴板');
+      } catch {
+        toast('复制失败，请手动选择复制');
+      }
+      btn.classList.add('copied');
+      setTimeout(() => btn.classList.remove('copied'), 1200);
+    });
+
+    /* ---------- IPv4 工具函数（32 位无符号整数运算） ---------- */
+    function ipToInt(ip) {
+      const parts = ip.split('.');
+      if (parts.length !== 4) return null;
+      let n = 0;
+      for (const p of parts) {
+        if (!/^\d{1,3}$/.test(p)) return null;
+        const v = Number(p);
+        if (v > 255) return null;
+        n = n * 256 + v;
+      }
+      return n >>> 0;
+    }
+
+    function intToIp(n) {
+      return [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join('.');
+    }
+
+    function maskOf(prefix) {
+      return prefix === 0 ? 0 : (0xffffffff << (32 - prefix)) >>> 0;
+    }
+
+    function escapeHtml(s) {
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function addRow(label, value) {
+      const row = document.createElement('div');
+      row.className = 'result-row';
+      const rid = 'ipR' + label.replace(/[^a-zA-Z0-9]/g, '');
+      row.innerHTML =
+        `<span class="r-label" style="width:130px;">${label}</span>` +
+        `<span class="r-value" id="${rid}">${escapeHtml(value)}</span>` +
+        `<button class="copy-btn" data-copy-target="${rid}">复制</button>`;
+      $('ipRows').appendChild(row);
+    }
+
+    let lastPrefix = 26;
+
+    function calc() {
+      const raw = $('ipInput').value.trim();
+      const rows = $('ipRows');
+      rows.innerHTML = '';
+      $('ipResult').hidden = true;
+      const hint = $('ipHint');
+
+      if (!raw) {
+        hint.textContent = '输入格式：IP/前缀 或 IP/掩码（如 255.255.255.192），自动识别。';
+        hint.classList.remove('err');
+        return;
+      }
+
+      const m = raw.match(/^([\d.]+)\s*\/\s*([\d.]+)$/);
+      if (!m) {
+        hint.textContent = '格式应为 IP/前缀，例如 192.168.1.130/26。';
+        hint.classList.add('err');
+        return;
+      }
+
+      const ip = ipToInt(m[1]);
+      if (ip === null) {
+        hint.textContent = `IP 地址「${m[1]}」无效。`;
+        hint.classList.add('err');
+        return;
+      }
+
+      let prefix;
+      if (/^\d{1,2}$/.test(m[2]) && Number(m[2]) <= 32) {
+        prefix = Number(m[2]);
+      } else {
+        const maskInt = ipToInt(m[2]);
+        // 掩码必须为「高位连续 1」：其通配符（按位取反）必须形如 2^k-1
+        const wild = (~maskInt >>> 0);
+        const valid = maskInt !== null && ((wild & (wild + 1)) >>> 0) === 0;
+        if (!valid) {
+          hint.textContent = `掩码「${m[2]}」无效（应为连续 1 前缀）。`;
+          hint.classList.add('err');
+          return;
+        }
+        prefix = 32 - Math.round(Math.log2(wild + 1));
+      }
+
+      const mask = maskOf(prefix);
+      const network = (ip & mask) >>> 0;
+      const broadcast = (network | (~mask >>> 0)) >>> 0;
+      const total = prefix >= 31 ? (prefix === 31 ? 2 : 1) : (broadcast - network - 1);
+      const firstHost = prefix >= 31 ? network : network + 1;
+      const lastHost = prefix >= 31 ? broadcast : broadcast - 1;
+
+      addRow('网络地址', `${intToIp(network)}/${prefix}`);
+      addRow('子网掩码', intToIp(mask));
+      addRow('通配符掩码', intToIp(~mask >>> 0));
+      addRow('广播地址', intToIp(broadcast));
+      addRow('可用主机范围', prefix === 32 ? '（单地址）' : `${intToIp(firstHost)} ~ ${intToIp(lastHost)}`);
+      addRow('可用主机数', prefix >= 31 ? String(total) : `${total.toLocaleString()}（另有网络/广播地址 2 个）`);
+      addRow('地址总数', (2 ** (32 - prefix)).toLocaleString());
+      addRow('IP 整数（十进制）', String(ip));
+      addRow('IP 二进制', ip.toString(2).padStart(32, '0').replace(/(.{8})(?=.)/g, '$1.'));
+      addRow('IP 十六进制', '0x' + ip.toString(16).toUpperCase().padStart(8, '0'));
+      $('ipResult').hidden = false;
+
+      hint.classList.remove('err');
+      hint.textContent = '解析成功。';
+
+      // 类型判断
+      let type = '公网地址';
+      const inCidr = (cidr) => {
+        const [b, len] = cidr.split('/');
+        const bn = ipToInt(b);
+        return ((ip >>> (32 - Number(len))) === (bn >>> (32 - Number(len))));
+      };
+      if (inCidr('10.0.0.0/8') || inCidr('172.16.0.0/12') || inCidr('192.168.0.0/16')) type = '私有地址（RFC1918）';
+      else if (inCidr('127.0.0.0/8')) type = '环回地址';
+      else if (inCidr('169.254.0.0/16')) type = '链路本地地址';
+      else if (inCidr('100.64.0.0/10')) type = '运营商级 NAT（CGNAT）';
+      else if (inCidr('224.0.0.0/4')) type = '组播地址';
+      else if (inCidr('0.0.0.0/8')) type = '本网络保留';
+      $('ipType').textContent = `所属分类：${type}`;
+
+      // 拖动滑杆时按当前 IP 重新计算
+      if (lastPrefix !== prefix) {
+        lastPrefix = prefix;
+        $('cidrRange').value = prefix;
+        $('cidrVal').textContent = '/' + prefix;
+      }
+    }
+
+    $('ipInput').addEventListener('input', calc);
+    $('cidrRange').addEventListener('input', () => {
+      const p = Number($('cidrRange').value);
+      $('cidrVal').textContent = '/' + p;
+      const raw = $('ipInput').value.trim();
+      const m = raw.match(/^([\d.]+)/);
+      if (m && ipToInt(m[1]) !== null) {
+        $('ipInput').value = `${m[1]}/${p}`;
+        calc();
+      }
+    });
+
+    calc();
+  </script>
+</body>
+</html>

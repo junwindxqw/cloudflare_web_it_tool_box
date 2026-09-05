@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Unicode 转换 - Web IT Tool Box</title>
+  <meta name="description" content="Unicode 转义互转：文本与 \uXXXX / \u{...} 编码互转，字符与码点对照表、UTF-8 字节查看，全部本地完成。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔤</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / Unicode 转换</div>
+      <h1><span class="icon-tile cat-dev">🔤</span>Unicode 转换</h1>
+      <p class="sub">文本与 \uXXXX / \u{…} 转义互转，并展示每个字符的码点与 UTF-8 字节，全部本地完成。</p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>方向与格式</div>
+      <div class="seg" id="uniSeg">
+        <button type="button" data-mode="encode" class="active">编码（文本 → \u）</button>
+        <button type="button" data-mode="decode">解码（\u → 文本）</button>
+      </div>
+      <div class="unit-switch" id="uniFormats">
+        <span class="field-label" style="margin:0;">格式：</span>
+        <label class="radio-label"><input type="radio" name="uniFmt" value="u4" checked> \uXXXX（BMP 外转代理对）</label>
+        <label class="radio-label"><input type="radio" name="uniFmt" value="ubraces"> \u{1F600}</label>
+        <label class="radio-label"><input type="radio" name="uniFmt" value="uhtml"> &amp;#x…;（HTML 实体）</label>
+        <label class="radio-label"><input type="checkbox" id="uniKeepAscii" checked> ASCII 保持原样</label>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="io-grid">
+        <div>
+          <div class="io-label"><span id="uniInputLabel">原文</span></div>
+          <textarea id="uniInput" class="json-input" style="min-height:160px;" placeholder="输入内容，例如：你好 ABC" spellcheck="false"></textarea>
+        </div>
+        <div>
+          <div class="io-label"><span id="uniOutputLabel">转义结果</span><button class="copy-btn" data-copy-input="uniOutput">复制</button></div>
+          <textarea id="uniOutput" class="json-input" style="min-height:160px;" readonly placeholder="结果…" spellcheck="false"></textarea>
+        </div>
+      </div>
+      <p class="hint" id="uniHint"></p>
+    </section>
+
+    <section class="panel" id="uniTablePanel" hidden>
+      <div class="panel-title"><span class="dot"></span>字符详情（前 64 个字符）</div>
+      <div style="overflow-x:auto;">
+        <table class="char-table" id="uniTable">
+          <thead><tr><th>字符</th><th>码点</th><th>十进制</th><th>UTF-8 字节</th><th>HTML 实体</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.copy-btn');
+      if (!btn) return;
+      const src = $(btn.dataset.copyInput);
+      const text = src ? src.value : '';
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        toast('已复制到剪贴板');
+      } catch {
+        toast('复制失败，请手动选择复制');
+      }
+      btn.classList.add('copied');
+      setTimeout(() => btn.classList.remove('copied'), 1200);
+    });
+
+    let mode = 'encode';
+
+    /* ---------- 编码 ---------- */
+    function escapeText(text, fmt, keepAscii) {
+      let out = '';
+      for (const ch of text) { // for..of 按码点迭代，正确处理 emoji
+        const cp = ch.codePointAt(0);
+        if (keepAscii && cp < 128) { out += ch; continue; }
+        if (fmt === 'u4') {
+          if (cp <= 0xffff) {
+            out += '\\u' + cp.toString(16).toUpperCase().padStart(4, '0');
+          } else {
+            // 代理对
+            const v = cp - 0x10000;
+            const hi = 0xd800 + (v >> 10);
+            const lo = 0xdc00 + (v & 0x3ff);
+            out += '\\u' + hi.toString(16).toUpperCase().padStart(4, '0') +
+                   '\\u' + lo.toString(16).toUpperCase().padStart(4, '0');
+          }
+        } else if (fmt === 'ubraces') {
+          out += '\\u{' + cp.toString(16).toUpperCase() + '}';
+        } else {
+          out += '&#x' + cp.toString(16) + ';';
+        }
+      }
+      return out;
+    }
+
+    /* ---------- 解码：\uXXXX / \u{...} / &#x…; / &#…; ---------- */
+    function unescapeText(text) {
+      return text
+        .replace(/\\u\{([0-9a-fA-F]{1,6})\}/g, (_, h) => safeCp(parseInt(h, 16)))
+        .replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => safeCp(parseInt(h, 16)))
+        .replace(/&#x([0-9a-fA-F]+);/gi, (_, h) => safeCp(parseInt(h, 16)))
+        .replace(/&#(\d+);/g, (_, d) => safeCp(parseInt(d, 10)));
+    }
+
+    function safeCp(cp) {
+      if (cp >= 0xd800 && cp <= 0xdfff) {
+        // 解码代理对需要成对处理，这里单独出现的代理原样保留
+        return cp <= 0xdbff ? '\uFFFD' : '\uFFFD';
+      }
+      if (cp < 0 || cp > 0x10ffff) return '\uFFFD';
+      try { return String.fromCodePoint(cp); } catch { return '\uFFFD'; }
+    }
+
+    // \uXXXX 代理对成对解码（在 unescapeText 前的预处理中合并高低代理）
+    function combineSurrogates(text) {
+      return text.replace(
+        /\\u([dD][89abAB][0-9a-fA-F]{2})\\u([dD][cdefEF][0-9a-fA-F]{2})/g,
+        (_, hi, lo) => {
+          const cp = 0x10000 + ((parseInt(hi, 16) - 0xd800) << 10) + (parseInt(lo, 16) - 0xdc00);
+          return '\\u{' + cp.toString(16) + '}';
+        });
+    }
+
+    function convert() {
+      const input = $('uniInput').value;
+      const fmt = document.querySelector('input[name="uniFmt"]:checked').value;
+      const keepAscii = $('uniKeepAscii').checked;
+      let out;
+      try {
+        out = mode === 'encode'
+          ? escapeText(input, fmt, keepAscii)
+          : unescapeText(combineSurrogates(input));
+      } catch (e) {
+        out = '转换失败：' + (e && e.message ? e.message : e);
+      }
+      $('uniOutput').value = out;
+
+      // 字符详情表（始终展示输入方向的文本字符）
+      const text = mode === 'encode' ? input : out;
+      const chars = Array.from(text);
+      const tbody = $('uniTable').querySelector('tbody');
+      tbody.innerHTML = '';
+      chars.slice(0, 64).forEach(ch => {
+        const cp = ch.codePointAt(0);
+        const bytes = Array.from(new TextEncoder().encode(ch), b => b.toString(16).toUpperCase().padStart(2, '0')).join(' ');
+        const tr = document.createElement('tr');
+        tr.innerHTML =
+          `<td class="cp-ch">${ch === ' ' ? '␠' : ch}</td>` +
+          `<td>U+${cp.toString(16).toUpperCase().padStart(4, '0')}</td>` +
+          `<td>${cp}</td>` +
+          `<td>${bytes}</td>` +
+          `<td>&#x${cp.toString(16)};</td>`;
+        tbody.appendChild(tr);
+      });
+      $('uniTablePanel').hidden = chars.length === 0;
+
+      const hint = $('uniHint');
+      if (!input) { hint.textContent = ''; return; }
+      hint.textContent = mode === 'encode'
+        ? `共 ${chars.length} 个字符（码点），UTF-8 编码 ${new TextEncoder().encode(input).length} 字节。`
+        : `已解码出 ${chars.length} 个字符。`;
+    }
+
+    $('uniSeg').addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      mode = btn.dataset.mode;
+      $('uniSeg').querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
+      $('uniFormats').style.display = mode === 'encode' ? '' : 'none';
+      $('uniInputLabel').textContent = mode === 'encode' ? '原文' : '转义文本';
+      $('uniOutputLabel').textContent = mode === 'encode' ? '转义结果' : '解码结果';
+      convert();
+    });
+
+    document.querySelectorAll('input[name="uniFmt"]').forEach(r => r.addEventListener('change', convert));
+    $('uniKeepAscii').addEventListener('change', convert);
+    $('uniInput').addEventListener('input', convert);
+  </script>
+</body>
+</html>

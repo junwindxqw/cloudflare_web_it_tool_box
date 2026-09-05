@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>随机密码生成 - Web IT Tool Box</title>
+  <meta name="description" content="在线随机密码生成器：自定义长度与字符集，排除易混淆字符，密码学安全随机数，熵值强度评估，全部本地生成。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔑</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <style>
+    .pw-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+    }
+    .pw-item .pw-text {
+      flex: 1;
+      font-family: var(--mono);
+      font-size: 15px;
+      font-weight: 600;
+      word-break: break-all;
+      cursor: pointer;
+    }
+    .strength {
+      display: inline-block;
+      width: 10px; height: 10px; border-radius: 50%;
+      margin-right: 6px;
+    }
+  </style>
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / 随机密码生成</div>
+      <h1><span class="icon-tile cat-dev">🔑</span>随机密码生成</h1>
+      <p class="sub">基于 crypto.getRandomValues 密码学安全随机数，只在你浏览器里生成，不经过网络。</p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>生成选项</div>
+
+      <div class="range-row">
+        <label for="pwLen">长度</label>
+        <input type="range" id="pwLen" min="4" max="64" value="16">
+        <span class="range-val" id="pwLenVal">16 位</span>
+      </div>
+
+      <div class="field-label">字符集</div>
+      <div class="unit-switch">
+        <label class="radio-label"><input type="checkbox" id="pwLower" checked> 小写字母 a-z</label>
+        <label class="radio-label"><input type="checkbox" id="pwUpper" checked> 大写字母 A-Z</label>
+        <label class="radio-label"><input type="checkbox" id="pwDigits" checked> 数字 0-9</label>
+        <label class="radio-label"><input type="checkbox" id="pwSymbols" checked> 符号 !@#$%^&amp;*</label>
+      </div>
+      <div class="unit-switch">
+        <label class="radio-label"><input type="checkbox" id="pwNoAmbiguous" checked> 排除易混淆字符（i l 1 L o 0 O）</label>
+        <label class="radio-label"><input type="checkbox" id="pwNoRepeat"> 相邻字符不重复</label>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn primary" id="btnPwGen">🎲 生成 5 个</button>
+        <button class="btn" id="btnPwCopyAll">📋 复制全部</button>
+      </div>
+      <p class="hint" id="pwEntropy"></p>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>结果（点击即复制）</div>
+      <div class="result-list" id="pwList"></div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    /* ---------- 随机数：无偏取样 ---------- */
+    function randInt(max) {
+      const limit = Math.floor(0x100000000 / max) * max;
+      const buf = new Uint32Array(1);
+      let v;
+      do { crypto.getRandomValues(buf); v = buf[0]; } while (v >= limit);
+      return v % max;
+    }
+
+    function buildCharset() {
+      let cs = '';
+      if ($('pwLower').checked) cs += 'abcdefghijklmnopqrstuvwxyz';
+      if ($('pwUpper').checked) cs += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+      if ($('pwDigits').checked) cs += '0123456789';
+      if ($('pwSymbols').checked) cs += '!@#$%^&*()-_=+[]{};:,.?/';
+      if ($('pwNoAmbiguous').checked) cs = cs.replace(/[il1Lo0O]/g, '');
+      return cs;
+    }
+
+    function genOne(charset, len, noRepeat) {
+      let out = '';
+      let prev = null;
+      while (out.length < len) {
+        const ch = charset[randInt(charset.length)];
+        if (noRepeat && ch === prev) continue;
+        out += ch;
+        prev = ch;
+      }
+      return out;
+    }
+
+    function strengthInfo(entropyBits) {
+      if (entropyBits >= 100) return { label: '极强', color: 'var(--ok)' };
+      if (entropyBits >= 75)  return { label: '强',   color: 'var(--ok)' };
+      if (entropyBits >= 50)  return { label: '中等', color: '#b45309' };
+      if (entropyBits >= 30)  return { label: '较弱', color: 'var(--danger)' };
+      return { label: '弱', color: 'var(--danger)' };
+    }
+
+    function generate() {
+      const len = Number($('pwLen').value);
+      const charset = buildCharset();
+      const list = $('pwList');
+      const hint = $('pwEntropy');
+
+      if (!charset) {
+        list.innerHTML = '<p class="hint err">请至少选择一种字符集。</p>';
+        hint.textContent = '';
+        return;
+      }
+      if (len < 4) {
+        list.innerHTML = '<p class="hint err">长度至少 4 位。</p>';
+        hint.textContent = '';
+        return;
+      }
+
+      const noRepeat = $('pwNoRepeat').checked;
+      if (noRepeat && charset.length < len) {
+        list.innerHTML = '<p class="hint err">当前字符集只有 ' + charset.length + ' 个字符，无法生成 ' + len + ' 位互不重复的密码。</p>';
+        hint.textContent = '';
+        return;
+      }
+
+      list.innerHTML = '';
+      for (let i = 0; i < 5; i++) {
+        const pw = genOne(charset, len, noRepeat);
+        const item = document.createElement('div');
+        item.className = 'pw-item';
+        item.innerHTML =
+          `<span class="pw-text" title="点击复制">${pw.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</span>` +
+          `<button class="copy-btn" data-copy-text="${pw.replace(/"/g, '&quot;')}">复制</button>`;
+        list.appendChild(item);
+      }
+
+      const bits = Math.round(len * Math.log2(charset.length));
+      const s = strengthInfo(bits);
+      hint.innerHTML =
+        `<span class="strength" style="background:${s.color};"></span>` +
+        `熵值约 <strong>${bits}</strong> bit（字符集 ${charset.length}），强度：<strong style="color:${s.color};">${s.label}</strong>` +
+        `<span style="margin-left:12px;">推荐 ≥ 75 bit（约 12 位混合字符）</span>`;
+    }
+
+    // 点击密码文本复制
+    $('pwList').addEventListener('click', async (e) => {
+      if (e.target.closest('.copy-btn')) return;
+      const text = e.target.closest('.pw-text');
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text.textContent);
+        toast('已复制到剪贴板');
+      } catch { toast('复制失败，请手动选择复制'); }
+    });
+
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.copy-btn[data-copy-text]');
+      if (!btn) return;
+      try {
+        await navigator.clipboard.writeText(btn.dataset.copyText);
+        toast('已复制到剪贴板');
+        btn.classList.add('copied');
+        setTimeout(() => btn.classList.remove('copied'), 1200);
+      } catch { toast('复制失败，请手动选择复制'); }
+    });
+
+    $('btnPwGen').addEventListener('click', generate);
+    $('btnPwCopyAll').addEventListener('click', async () => {
+      const all = Array.from($('pwList').querySelectorAll('.pw-text')).map(el => el.textContent).join('\n');
+      if (!all) return;
+      try {
+        await navigator.clipboard.writeText(all);
+        toast('已复制 5 个密码');
+      } catch { toast('复制失败，请手动选择复制'); }
+    });
+
+    $('pwLen').addEventListener('input', () => {
+      $('pwLenVal').textContent = $('pwLen').value + ' 位';
+      generate();
+    });
+    document.querySelectorAll('.panel input[type="checkbox"]').forEach(c => c.addEventListener('change', generate));
+
+    generate();
+  </script>
+</body>
+</html>

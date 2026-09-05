@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JWT 解析器 - Web IT Tool Box</title>
+  <meta name="description" content="在线解析 JWT（JSON Web Token）：解码 Header 与 Payload，展示标准声明与过期时间，仅本地解码，不发送 Token。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎫</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / JWT 解析器</div>
+      <h1><span class="icon-tile cat-dev">🎫</span>JWT 解析器</h1>
+      <p class="sub">解码 JWT 的 Header 与 Payload 并解读标准声明。仅本地解码，不会上传 Token，也不验证签名。</p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>粘贴 JWT</div>
+      <textarea id="jwtInput" class="json-input" style="min-height:120px;" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.xxx" spellcheck="false"></textarea>
+      <p class="hint" id="jwtHint">格式：header.payload.signature，粘贴后自动解析。</p>
+    </section>
+
+    <section class="panel" id="jwtResultPanel" hidden>
+      <div class="panel-title"><span class="dot"></span>Header</div>
+      <div class="json-output" id="jwtHeader" style="min-height:auto;"></div>
+    </section>
+
+    <section class="panel" id="jwtPayloadPanel" hidden>
+      <div class="panel-title"><span class="dot"></span>Payload</div>
+      <div class="json-output" id="jwtPayload" style="min-height:auto;"></div>
+
+      <div class="result-list" id="jwtClaims"></div>
+      <p class="hint" id="jwtExpHint"></p>
+    </section>
+
+    <section class="panel" id="jwtSignPanel" hidden>
+      <div class="panel-title"><span class="dot"></span>Signature（未验证）</div>
+      <div class="json-output" id="jwtSignature" style="min-height:auto;max-height:120px;"></div>
+      <p class="hint">本工具仅解码展示，不做签名校验；请勿在生产环境粘贴含敏感信息的真实 Token。</p>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    function base64UrlDecode(part) {
+      let s = part.replace(/-/g, '+').replace(/_/g, '/');
+      while (s.length % 4) s += '=';
+      const bin = atob(s);
+      const bytes = Uint8Array.from(bin, ch => ch.charCodeAt(0));
+      return new TextDecoder().decode(bytes);
+    }
+
+    const pad = (n) => String(n).padStart(2, '0');
+    function fmtTime(sec) {
+      const d = new Date(sec * 1000);
+      if (isNaN(d.getTime())) return String(sec);
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
+        `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    }
+
+    const CLAIM_NAMES = {
+      iss: '签发者 (iss)', sub: '主题 (sub)', aud: '受众 (aud)', exp: '过期时间 (exp)',
+      nbf: '生效时间 (nbf)', iat: '签发时间 (iat)', jti: 'JWT ID (jti)'
+    };
+
+    function escapeHtml(s) {
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function parseJwt() {
+      const raw = $('jwtInput').value.trim();
+      const panels = ['jwtResultPanel', 'jwtPayloadPanel', 'jwtSignPanel'];
+      const hint = $('jwtHint');
+      panels.forEach(id => $(id).hidden = true);
+      $('jwtClaims').innerHTML = '';
+      $('jwtExpHint').textContent = '';
+
+      if (!raw) { hint.textContent = '格式：header.payload.signature，粘贴后自动解析。'; hint.classList.remove('err'); return; }
+
+      const parts = raw.split('.');
+      if (parts.length < 2 || parts.length > 3 || parts.some((p, i) => i < 2 && !p)) {
+        hint.textContent = '无法解析：JWT 应由两到三个用「.」分隔的 Base64Url 段组成。';
+        hint.classList.add('err');
+        return;
+      }
+
+      let header, payload;
+      try {
+        header = JSON.parse(base64UrlDecode(parts[0]));
+        payload = JSON.parse(base64UrlDecode(parts[1]));
+      } catch (e) {
+        hint.textContent = '解码失败：' + (e && e.message ? e.message : '不是合法的 Base64Url JSON') + '。';
+        hint.classList.add('err');
+        return;
+      }
+
+      hint.classList.remove('err');
+      hint.textContent = '解析成功（共 ' + parts.length + ' 段）。';
+      $('jwtHeader').textContent = JSON.stringify(header, null, 2);
+      $('jwtPayload').textContent = JSON.stringify(payload, null, 2);
+      $('jwtSignature').textContent = parts[2] || '（无签名段）';
+      panels.forEach(id => $(id).hidden = false);
+
+      // 标准声明解读
+      const claims = $('jwtClaims');
+      Object.entries(CLAIM_NAMES).forEach(([key, label]) => {
+        if (!(key in payload)) return;
+        const v = payload[key];
+        let value;
+        if ((key === 'exp' || key === 'nbf' || key === 'iat') && typeof v === 'number') {
+          value = `${v}（${fmtTime(v)}）`;
+        } else {
+          value = typeof v === 'object' ? JSON.stringify(v) : String(v);
+        }
+        const row = document.createElement('div');
+        row.className = 'result-row';
+        row.innerHTML = `<span class="r-label">${escapeHtml(label)}</span><span class="r-value">${escapeHtml(value)}</span>`;
+        claims.appendChild(row);
+      });
+
+      // 过期状态
+      const expHint = $('jwtExpHint');
+      if (typeof payload.exp === 'number') {
+        const diff = payload.exp * 1000 - Date.now();
+        expHint.textContent = diff > 0
+          ? `✅ Token 尚未过期，剩余约 ${Math.max(1, Math.round(diff / 1000)).toLocaleString()} 秒。`
+          : `⚠️ Token 已过期约 ${Math.round(-diff / 1000).toLocaleString()} 秒。`;
+        expHint.style.color = diff > 0 ? 'var(--ok)' : 'var(--danger)';
+      }
+    }
+
+    $('jwtInput').addEventListener('input', parseJwt);
+  </script>
+</body>
+</html>

@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UUID 生成器 - Web IT Tool Box</title>
+  <meta name="description" content="在线批量生成 UUID v4（随机 UUID），支持大小写、去连字符等格式选项，密码学安全随机数，全部本地生成。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🆔</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / UUID 生成器</div>
+      <h1><span class="icon-tile cat-dev">🆔</span>UUID 生成器</h1>
+      <p class="sub">批量生成 UUID v4，使用密码学安全随机数，全部在浏览器本地完成。</p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>生成选项</div>
+
+      <div class="range-row">
+        <label for="uuidCount">数量</label>
+        <input type="range" id="uuidCount" min="1" max="100" value="5">
+        <span class="range-val" id="uuidCountVal">5 个</span>
+      </div>
+
+      <div class="unit-switch">
+        <label class="radio-label"><input type="checkbox" id="uuidUpper"> 大写</label>
+        <label class="radio-label"><input type="checkbox" id="uuidNoDash"> 去除连字符</label>
+        <label class="radio-label"><input type="checkbox" id="uuidBrace"> 花括号包裹</label>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn primary" id="btnGen">⚡ 生成</button>
+        <button class="btn" id="btnCopyAll">📋 复制全部</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>结果</div>
+      <div class="next-list" id="uuidList"></div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    document.addEventListener('click', async (e) => {
+      const copyBtn = e.target.closest('[data-copy-text]');
+      if (copyBtn) {
+        try {
+          await navigator.clipboard.writeText(copyBtn.dataset.copyText);
+          toast('已复制到剪贴板');
+          copyBtn.classList.add('copied');
+          setTimeout(() => copyBtn.classList.remove('copied'), 1200);
+        } catch { toast('复制失败，请手动选择复制'); }
+        return;
+      }
+      const row = e.target.closest('.nx');
+      if (row && e.target.tagName !== 'BUTTON') {
+        try {
+          await navigator.clipboard.writeText(row.dataset.uuid);
+          toast('已复制：' + row.dataset.uuid.slice(0, 18) + '…');
+        } catch { toast('复制失败，请手动选择复制'); }
+      }
+    });
+
+    /* ---------- UUID v4 ---------- */
+    function uuidV4() {
+      if (crypto.randomUUID) return crypto.randomUUID();
+      const b = crypto.getRandomValues(new Uint8Array(16));
+      b[6] = (b[6] & 0x0f) | 0x40; // version 4
+      b[8] = (b[8] & 0x3f) | 0x80; // variant 10xx
+      const hex = Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+    }
+
+    function currentList() {
+      return Array.from($('uuidList').children).map(el => el.dataset.uuid);
+    }
+
+    function generate() {
+      const n = Number($('uuidCount').value);
+      const upper = $('uuidUpper').checked;
+      const noDash = $('uuidNoDash').checked;
+      const brace = $('uuidBrace').checked;
+
+      const list = $('uuidList');
+      list.innerHTML = '';
+      for (let i = 0; i < n; i++) {
+        let u = uuidV4();
+        if (noDash) u = u.replace(/-/g, '');
+        if (upper) u = u.toUpperCase();
+        const shown = brace ? '{' + u + '}' : u;
+
+        const row = document.createElement('div');
+        row.className = 'nx';
+        row.dataset.uuid = shown;
+        row.title = '点击复制';
+        row.innerHTML =
+          `<span class="idx">${i + 1}</span>` +
+          `<span style="flex:1;word-break:break-all;">${shown}</span>` +
+          `<button class="copy-btn" data-copy-text="${shown}">复制</button>`;
+        list.appendChild(row);
+      }
+    }
+
+    $('uuidCount').addEventListener('input', () => {
+      $('uuidCountVal').textContent = $('uuidCount').value + ' 个';
+      generate();
+    });
+    ['uuidUpper', 'uuidNoDash', 'uuidBrace'].forEach(id => $(id).addEventListener('change', generate));
+
+    $('btnGen').addEventListener('click', generate);
+
+    $('btnCopyAll').addEventListener('click', async () => {
+      const all = currentList().join('\n');
+      if (!all) return;
+      try {
+        await navigator.clipboard.writeText(all);
+        toast(`已复制 ${currentList().length} 个 UUID`);
+      } catch { toast('复制失败，请手动选择复制'); }
+    });
+
+    generate();
+  </script>
+</body>
+</html>

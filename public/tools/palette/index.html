@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>配色方案生成 - Web IT Tool Box</title>
+  <meta name="description" content="在线配色方案生成器：基于一个主色生成互补、三角、类似、分裂互补与单色系配色，点击复制 HEX 值。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🖌️</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <style>
+    .palette-row { margin-bottom: 20px; }
+    .palette-row h3 { font-size: 14px; font-weight: 700; color: var(--text-2); margin-bottom: 8px; }
+    .palette-swatches { display: flex; border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--border); }
+    .palette-swatch {
+      flex: 1;
+      min-width: 0;
+      padding: 26px 4px 8px;
+      text-align: center;
+      cursor: pointer;
+      transition: transform 0.12s;
+      border: none;
+      background: none;
+      font-family: var(--mono);
+    }
+    .palette-swatch:hover { transform: translateY(-3px); }
+    .palette-swatch .hex {
+      display: block;
+      font-size: 12px;
+      font-weight: 700;
+      color: #fff;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+      text-transform: uppercase;
+    }
+  </style>
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / 配色方案生成</div>
+      <h1><span class="icon-tile cat-design">🖌️</span>配色方案生成</h1>
+      <p class="sub">选择一个主色，自动生成互补、三角、类似色等经典配色，点击色块即可复制 HEX。</p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>主色</div>
+      <div class="unit-switch">
+        <input type="color" id="palBase" value="#3b82f6" style="width:64px;height:40px;padding:2px;cursor:pointer;">
+        <input type="text" id="palBaseHex" class="mono" value="#3B82F6" style="width:130px;" spellcheck="false" autocomplete="off">
+        <button class="btn" id="btnPalRand">🎲 随机</button>
+      </div>
+      <p class="hint">点击下方任意色块复制颜色值。</p>
+    </section>
+
+    <section class="panel" id="palettes"></section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    /* ---------- 颜色转换 ---------- */
+    function hexToHsl(hex) {
+      const n = parseInt(hex.slice(1), 16);
+      const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+      const max = Math.max(r, g, b), min = Math.min(r, g, b);
+      let h = 0, s = 0;
+      const l = (max + min) / 2;
+      if (max !== min) {
+        const d = max - min;
+        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+        if (max === r) h = ((g - b) / d + (g < b ? 6 : 0));
+        else if (max === g) h = (b - r) / d + 2;
+        else h = (r - g) / d + 4;
+        h *= 60;
+      }
+      return { h, s: s * 100, l: l * 100 };
+    }
+
+    function hslToHex(h, s, l) {
+      h = ((h % 360) + 360) % 360;
+      s = Math.min(100, Math.max(0, s)) / 100;
+      l = Math.min(100, Math.max(0, l)) / 100;
+      const c = (1 - Math.abs(2 * l - 1)) * s;
+      const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+      const m = l - c / 2;
+      let rgb;
+      if (h < 60) rgb = [c, x, 0];
+      else if (h < 120) rgb = [x, c, 0];
+      else if (h < 180) rgb = [0, c, x];
+      else if (h < 240) rgb = [0, x, c];
+      else if (h < 300) rgb = [x, 0, c];
+      else rgb = [c, 0, x];
+      const toHex = (v) => Math.round((v + m) * 255).toString(16).padStart(2, '0');
+      return '#' + toHex(rgb[0]) + toHex(rgb[1]) + toHex(rgb[2]);
+    }
+
+    /* ---------- 配色算法 ---------- */
+    function schemes(baseHex) {
+      const { h, s, l } = hexToHsl(baseHex);
+      const sw = (arr) => arr.map(([hh, ss, ll]) => hslToHex(hh, ss, ll));
+      return [
+        { name: '单色系（Monochromatic）', colors: sw([[h, s, Math.min(95, l + 28)], [h, s * 0.85, Math.min(90, l + 14)], [h, s, l], [h, s * 0.85, Math.max(15, l - 14)], [h, s, Math.max(10, l - 28)]]) },
+        { name: '类似色（Analogous）', colors: sw([[h - 40, s, l], [h - 20, s, l], [h, s, l], [h + 20, s, l], [h + 40, s, l]]) },
+        { name: '互补色（Complementary）', colors: sw([[h, s, l], [h, s * 0.7, Math.min(90, l + 18)], [h + 180, s, l], [h + 180, s * 0.7, Math.min(90, l + 18)], [h, s * 0.5, Math.max(12, l - 20)]]) },
+        { name: '分裂互补（Split-Complementary）', colors: sw([[h, s, l], [h + 150, s, l], [h + 210, s, l], [h + 150, s * 0.6, Math.min(88, l + 16)], [h, s * 0.5, Math.max(12, l - 22)]]) },
+        { name: '三角配色（Triadic）', colors: sw([[h, s, l], [h + 120, s, l], [h + 240, s, l], [h + 120, s * 0.65, Math.min(90, l + 14)], [h + 240, s * 0.65, Math.max(14, l - 14)]]) },
+      ];
+    }
+
+    function render() {
+      const base = $('palBaseHex').value.trim();
+      if (!/^#[0-9a-fA-F]{6}$/.test(base)) return;
+      const wrap = $('palettes');
+      wrap.innerHTML = '';
+      schemes(base).forEach(sch => {
+        const row = document.createElement('div');
+        row.className = 'palette-row';
+        row.innerHTML = `<h3>${sch.name}</h3>`;
+        const box = document.createElement('div');
+        box.className = 'palette-swatches';
+        sch.colors.forEach(hex => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'palette-swatch';
+          b.style.background = hex;
+          b.innerHTML = `<span class="hex">${hex.toUpperCase()}</span>`;
+          b.title = '点击复制 ' + hex.toUpperCase();
+          b.addEventListener('click', async () => {
+            try {
+              await navigator.clipboard.writeText(hex.toUpperCase());
+              toast('已复制 ' + hex.toUpperCase());
+            } catch { toast('复制失败，请手动选择复制'); }
+          });
+          box.appendChild(b);
+        });
+        row.appendChild(box);
+        wrap.appendChild(row);
+      });
+    }
+
+    $('palBase').addEventListener('input', () => {
+      $('palBaseHex').value = $('palBase').value.toUpperCase();
+      render();
+    });
+
+    $('palBaseHex').addEventListener('input', () => {
+      const v = $('palBaseHex').value.trim();
+      if (/^#[0-9a-fA-F]{6}$/.test(v)) {
+        $('palBase').value = v.toLowerCase();
+        render();
+      }
+    });
+
+    $('btnPalRand').addEventListener('click', () => {
+      const hex = '#' + Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0');
+      $('palBase').value = hex;
+      $('palBaseHex').value = hex.toUpperCase();
+      render();
+    });
+
+    render();
+  </script>
+</body>
+</html>

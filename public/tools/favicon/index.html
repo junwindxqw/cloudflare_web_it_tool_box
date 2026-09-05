@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Favicon 生成 - Web IT Tool Box</title>
+  <meta name="description" content="在线 Favicon 生成器：输入文字或 Emoji，选择背景与形状，一键导出 16/32/48/180 等多尺寸 PNG 图标，全部本地完成。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⭐</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <style>
+    .fav-grid { display: flex; flex-wrap: wrap; gap: 22px; align-items: flex-end; }
+    .fav-item { text-align: center; }
+    .fav-item canvas { border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2); image-rendering: pixelated; }
+    .fav-item .fav-label { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  </style>
+  <script src="/assets/js/common.js"></script>
+  <script src="/assets/js/image-utils.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / Favicon 生成</div>
+      <h1><span class="icon-tile cat-design">⭐</span>Favicon 生成</h1>
+      <p class="sub">输入文字或 Emoji 快速生成网站图标，多尺寸一键下载，全部本地完成。</p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>图标内容</div>
+
+      <label class="field-label" for="favText">文字 / Emoji（建议 1-2 个字符）</label>
+      <input type="text" id="favText" value="🧰" maxlength="4" spellcheck="false">
+
+      <div class="unit-switch" style="margin-top:14px;">
+        <span class="field-label" style="margin:0;">形状：</span>
+        <label class="radio-label"><input type="radio" name="favShape" value="square" checked> 方形</label>
+        <label class="radio-label"><input type="radio" name="favShape" value="rounded"> 圆角</label>
+        <label class="radio-label"><input type="radio" name="favShape" value="circle"> 圆形</label>
+      </div>
+
+      <div class="unit-switch" style="margin-top:12px;">
+        <span class="field-label" style="margin:0;">背景：</span>
+        <input type="color" id="favBg" value="#3b82f6" style="width:52px;height:34px;padding:2px;cursor:pointer;">
+        <span class="field-label" style="margin:0 0 0 10px;">文字：</span>
+        <input type="color" id="favFg" value="#ffffff" style="width:52px;height:34px;padding:2px;cursor:pointer;">
+        <span class="field-label" style="margin:0 0 0 10px;">背景占比：</span>
+        <div class="range-row" style="flex:1;">
+          <input type="range" id="favPad" min="0" max="20" value="6">
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>预览（实际尺寸）</div>
+      <div class="fav-grid" id="favPreview"></div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>下载</div>
+      <div class="btn-row" id="favDownloads"></div>
+      <p class="hint">下载后可将 16/32 的 PNG 命名为 favicon.ico 使用，或在 HTML 中引用：
+        <code style="font-family:var(--mono);">&lt;link rel="icon" href="/favicon-32.png"&gt;</code></p>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    const SIZES = [16, 32, 48, 64, 128, 180];
+
+    function drawIcon(size) {
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      const shape = document.querySelector('input[name="favShape"]:checked').value;
+      const pad = Number($('favPad').value) / 100 * size; // 背景内缩
+
+      // 背景
+      ctx.fillStyle = $('favBg').value;
+      const r = shape === 'rounded' ? size * 0.18 : 0;
+      ctx.beginPath();
+      if (shape === 'circle') {
+        ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+      } else if (r > 0) {
+        ctx.moveTo(r, 0);
+        ctx.arcTo(size, 0, size, size, r);
+        ctx.arcTo(size, size, 0, size, r);
+        ctx.arcTo(0, size, 0, 0, r);
+        ctx.arcTo(0, 0, size, 0, r);
+        ctx.closePath();
+      } else {
+        ctx.rect(0, 0, size, size);
+      }
+      ctx.fill();
+
+      // 文字
+      const text = $('favText').value.trim() || 'A';
+      const hasEmoji = /\p{Extended_Pictographic}|\u{1F000}-\u{1FAFF}|\u{2600}-\u{27BF}/u.test(text);
+      ctx.fillStyle = $('favFg').value;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      // 字号按画布与字符数自适应，pad 越大字越小
+      const avail = size - pad * 2;
+      let fontSize = avail * (text.length > 1 ? 0.52 : 0.78);
+      if (!hasEmoji) fontSize *= 0.92;
+      ctx.font = `${hasEmoji ? '' : '700 '}${Math.max(4, Math.floor(fontSize))}px sans-serif`;
+      ctx.fillText(text, size / 2, size / 2 + size * 0.03);
+      return canvas;
+    }
+
+    function render() {
+      const wrap = $('favPreview');
+      wrap.innerHTML = '';
+      const dl = $('favDownloads');
+      dl.innerHTML = '';
+
+      SIZES.forEach(size => {
+        const canvas = drawIcon(size);
+        const item = document.createElement('div');
+        item.className = 'fav-item';
+        item.appendChild(canvas);
+        const label = document.createElement('div');
+        label.className = 'fav-label';
+        label.textContent = size + 'px';
+        item.appendChild(label);
+        wrap.appendChild(item);
+
+        const btn = document.createElement('button');
+        btn.className = 'btn';
+        btn.textContent = `⬇️ ${size}px`;
+        btn.addEventListener('click', () => {
+          canvas.toBlob((blob) => {
+            if (!blob) { toast('导出失败'); return; }
+            IMG.downloadBlob(blob, `favicon-${size}.png`);
+          }, 'image/png');
+        });
+        dl.appendChild(btn);
+      });
+    }
+
+    ['favText', 'favBg', 'favFg', 'favPad'].forEach(id => $(id).addEventListener('input', render));
+    document.querySelectorAll('input[name="favShape"]').forEach(r => r.addEventListener('change', render));
+
+    render();
+  </script>
+</body>
+</html>

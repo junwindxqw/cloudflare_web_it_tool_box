@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>图片改尺寸 - Web IT Tool Box</title>
+  <meta name="description" content="在线调整图片尺寸：按像素或百分比缩放，可锁定宽高比，导出 PNG / JPEG / WebP，全部本地处理。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📐</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <script src="/assets/js/common.js"></script>
+  <script src="/assets/js/image-utils.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / 图片改尺寸</div>
+      <h1><span class="icon-tile cat-design">📐</span>图片改尺寸</h1>
+      <p class="sub">按像素或百分比缩放图片，可锁定宽高比，全部本地处理，图片不上传。</p>
+    </div>
+
+    <section class="dropzone" id="rsDrop">
+      <span class="dz-icon">🖼️</span>
+      <span class="dz-main">点击选择或拖入图片</span>
+      <span class="dz-sub">PNG / JPEG / WebP</span>
+      <input type="file" id="rsFile" accept="image/*" hidden>
+    </section>
+
+    <section class="panel" id="rsPanel" hidden>
+      <div class="panel-title"><span class="dot"></span>原图信息</div>
+      <div class="compare-grid">
+        <div class="cmp">
+          <div class="cmp-label">原图预览</div>
+          <img id="rsPreview" alt="原图预览">
+        </div>
+        <div class="cmp">
+          <div class="cmp-label">缩放后预览</div>
+          <img id="rsResultPreview" alt="缩放后预览" style="display:none;">
+          <p class="hint" id="rsPlaceholder" style="padding:40px 0;">调整参数后点击「应用缩放」</p>
+        </div>
+      </div>
+      <p class="hint" id="rsInfo"></p>
+    </section>
+
+    <section class="panel" id="rsOptsPanel" hidden>
+      <div class="panel-title"><span class="dot"></span>缩放参数</div>
+
+      <div class="unit-switch">
+        <span class="field-label" style="margin:0;">模式：</span>
+        <label class="radio-label"><input type="radio" name="rsMode" value="px" checked> 按像素</label>
+        <label class="radio-label"><input type="radio" name="rsMode" value="pct"> 按百分比</label>
+      </div>
+
+      <div id="rsPxRow">
+        <div class="io-grid" style="margin-top:10px;">
+          <div>
+            <div class="field-label">宽度（px）</div>
+            <input type="number" id="rsWidth" class="mono" min="1" value="0">
+          </div>
+          <div>
+            <div class="field-label">高度（px）</div>
+            <input type="number" id="rsHeight" class="mono" min="1" value="0">
+          </div>
+        </div>
+        <div class="unit-switch">
+          <label class="radio-label"><input type="checkbox" id="rsLock" checked> 🔗 锁定宽高比</label>
+        </div>
+      </div>
+
+      <div id="rsPctRow" style="display:none;">
+        <div class="range-row" style="margin-top:10px;">
+          <label for="rsPercent">缩放</label>
+          <input type="range" id="rsPercent" min="1" max="400" value="100">
+          <span class="range-val" id="rsPercentVal">100%</span>
+        </div>
+      </div>
+
+      <div class="json-toolbar" style="margin-top:14px;">
+        <select id="rsFormat">
+          <option value="image/png">PNG（无损，支持透明）</option>
+          <option value="image/jpeg">JPEG（体积小）</option>
+          <option value="image/webp">WebP（推荐）</option>
+        </select>
+        <button class="btn primary" id="btnRsApply">📐 应用缩放</button>
+        <button class="btn" id="btnRsDownload" hidden>⬇️ 下载结果</button>
+      </div>
+      <p class="hint" id="rsOutInfo"></p>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    let state = null;
+    let resultBlob = null;
+
+    IMG.setupDrop($('rsDrop'), loadFile);
+    $('rsDrop').addEventListener('click', () => $('rsFile').click());
+    $('rsFile').addEventListener('change', (e) => { if (e.target.files[0]) loadFile(e.target.files[0]); });
+
+    async function loadFile(file) {
+      try {
+        state = await IMG.loadImageFile(file);
+        $('rsPreview').src = state.url;
+        $('rsPanel').hidden = false;
+        $('rsOptsPanel').hidden = false;
+        $('rsInfo').textContent = `原图 ${state.width} × ${state.height}px，${IMG.formatBytes(state.size)}`;
+        $('rsWidth').value = state.width;
+        $('rsHeight').value = state.height;
+        $('rsResultPreview').style.display = 'none';
+        $('rsPlaceholder').style.display = '';
+        $('btnRsDownload').hidden = true;
+      } catch (e) {
+        toast(e.message || '图片加载失败');
+      }
+    }
+
+    function targetSize() {
+      const mode = document.querySelector('input[name="rsMode"]:checked').value;
+      if (mode === 'pct') {
+        const pct = Number($('rsPercent').value) / 100;
+        return {
+          w: Math.max(1, Math.round(state.width * pct)),
+          h: Math.max(1, Math.round(state.height * pct)),
+        };
+      }
+      return {
+        w: Math.max(1, Math.round(Number($('rsWidth').value) || 1)),
+        h: Math.max(1, Math.round(Number($('rsHeight').value) || 1)),
+      };
+    }
+
+    // 锁定宽高比联动
+    $('rsWidth').addEventListener('input', () => {
+      if (!$('rsLock').checked || !state) return;
+      const w = Number($('rsWidth').value);
+      if (w > 0) $('rsHeight').value = Math.round(w * state.height / state.width);
+    });
+    $('rsHeight').addEventListener('input', () => {
+      if (!$('rsLock').checked || !state) return;
+      const h = Number($('rsHeight').value);
+      if (h > 0) $('rsWidth').value = Math.round(h * state.width / state.height);
+    });
+    $('rsPercent').addEventListener('input', () => {
+      $('rsPercentVal').textContent = $('rsPercent').value + '%';
+    });
+
+    document.querySelectorAll('input[name="rsMode"]').forEach(r => r.addEventListener('change', () => {
+      const mode = document.querySelector('input[name="rsMode"]:checked').value;
+      $('rsPxRow').style.display = mode === 'px' ? '' : 'none';
+      $('rsPctRow').style.display = mode === 'pct' ? '' : 'none';
+    }));
+
+    $('btnRsApply').addEventListener('click', async () => {
+      if (!state) return;
+      const { w, h } = targetSize();
+      if (w > 10000 || h > 10000) { toast('尺寸过大（上限 10000px）'); return; }
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(state.img, 0, 0, w, h);
+      const mime = $('rsFormat').value;
+      try {
+        resultBlob = await IMG.canvasToBlob(canvas, mime, 0.92);
+        const url = URL.createObjectURL(resultBlob);
+        const img = $('rsResultPreview');
+        if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
+        img.src = url;
+        img.style.display = '';
+        $('rsPlaceholder').style.display = 'none';
+        $('btnRsDownload').hidden = false;
+        $('rsOutInfo').textContent =
+          `${state.width}×${state.height} → ${w}×${h}，输出 ${IMG.formatBytes(resultBlob.size)}`;
+      } catch (e) {
+        toast(e.message || '缩放失败');
+      }
+    });
+
+    $('btnRsDownload').addEventListener('click', () => {
+      if (!resultBlob) return;
+      IMG.downloadBlob(resultBlob, `${IMG.baseName(state.name)}-${targetSize().w}x${targetSize().h}.${IMG.extOf($('rsFormat').value)}`);
+    });
+  </script>
+</body>
+</html>

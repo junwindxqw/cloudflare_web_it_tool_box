@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>图片裁剪 - Web IT Tool Box</title>
+  <meta name="description" content="在线图片裁剪：在预览图上拖拽框选区域，支持精确数值微调，导出 PNG / JPEG / WebP，全部本地处理。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✂️</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <script src="/assets/js/common.js"></script>
+  <script src="/assets/js/image-utils.js"></script>
+  <style>
+    .crop-stage { position: relative; display: inline-block; max-width: 100%; cursor: crosshair; }
+    .crop-stage canvas { display: block; max-width: 100%; border-radius: var(--radius-sm); border: 1px solid var(--border); }
+    .crop-rect {
+      position: absolute;
+      border: 1.5px solid #fff;
+      outline: 1.5px solid rgba(0,0,0,0.55);
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
+      pointer-events: none;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / 图片裁剪</div>
+      <h1><span class="icon-tile cat-design">✂️</span>图片裁剪</h1>
+      <p class="sub">在预览图上按住鼠标拖出裁剪区域，也可直接输入坐标微调，全部本地处理，图片不上传。</p>
+    </div>
+
+    <section class="dropzone" id="cropDrop">
+      <span class="dz-icon">🖼️</span>
+      <span class="dz-main">点击选择或拖入图片</span>
+      <span class="dz-sub">PNG / JPEG / WebP，建议桌面上使用拖拽框选</span>
+      <input type="file" id="cropFile" accept="image/*" hidden>
+    </section>
+
+    <section class="panel" id="cropEditPanel" hidden>
+      <div class="panel-title"><span class="dot"></span>框选区域（拖拽选择）</div>
+      <div class="preview-box">
+        <div class="crop-stage" id="cropStage">
+          <canvas id="cropCanvas"></canvas>
+          <div class="crop-rect" id="cropRect"></div>
+        </div>
+      </div>
+
+      <div class="io-grid" style="margin-top:14px;">
+        <div>
+          <div class="field-label">X（左上角）</div>
+          <input type="number" id="cropX" class="mono" min="0" value="0">
+          <div class="field-label">宽度</div>
+          <input type="number" id="cropW" class="mono" min="1" value="0">
+        </div>
+        <div>
+          <div class="field-label">Y（左上角）</div>
+          <input type="number" id="cropY" class="mono" min="0" value="0">
+          <div class="field-label">高度</div>
+          <input type="number" id="cropH" class="mono" min="1" value="0">
+        </div>
+      </div>
+      <p class="hint" id="cropInfo"></p>
+    </section>
+
+    <section class="panel" id="cropOutPanel" hidden>
+      <div class="panel-title"><span class="dot"></span>导出</div>
+      <div class="json-toolbar">
+        <select id="cropFormat">
+          <option value="image/png">PNG（无损，支持透明）</option>
+          <option value="image/jpeg">JPEG（体积小）</option>
+          <option value="image/webp">WebP（推荐）</option>
+        </select>
+        <button class="btn primary" id="btnCropApply">✂️ 裁剪并预览</button>
+        <button class="btn" id="btnCropDownload" hidden>⬇️ 下载结果</button>
+      </div>
+      <div class="preview-box" id="cropResultBox" hidden>
+        <img id="cropResultImg" alt="裁剪结果预览">
+        <p class="hint" id="cropResultInfo"></p>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    let state = null; // { img, width, height, name }
+    let cropResultBlob = null;
+
+    IMG.setupDrop($('cropDrop'), loadFile);
+    $('cropDrop').addEventListener('click', () => $('cropFile').click());
+    $('cropFile').addEventListener('change', (e) => { if (e.target.files[0]) loadFile(e.target.files[0]); });
+
+    async function loadFile(file) {
+      try {
+        const info = await IMG.loadImageFile(file);
+        state = info;
+        const maxW = 720;
+        const scale = Math.min(1, maxW / info.width);
+        const canvas = $('cropCanvas');
+        canvas.width = Math.round(info.width * scale);
+        canvas.height = Math.round(info.height * scale);
+        canvas.getContext('2d').drawImage(info.img, 0, 0, canvas.width, canvas.height);
+
+        // 默认选中中间 60% 区域
+        const w = Math.round(info.width * 0.6);
+        const h = Math.round(info.height * 0.6);
+        $('cropX').value = Math.round((info.width - w) / 2);
+        $('cropY').value = Math.round((info.height - h) / 2);
+        $('cropW').value = w;
+        $('cropH').value = h;
+
+        $('cropEditPanel').hidden = false;
+        $('cropOutPanel').hidden = false;
+        $('cropResultBox').hidden = true;
+        $('btnCropDownload').hidden = true;
+        $('cropInfo').textContent = `原图 ${info.width} × ${info.height}px，${IMG.formatBytes(info.size)}。画布已缩放 ${Math.round(scale * 100)}% 显示。`;
+        drawRect();
+      } catch (e) {
+        toast(e.message || '图片加载失败');
+      }
+    }
+
+    /* ---------- 数值同步框选显示 ---------- */
+    function getCrop() {
+      const maxW = state ? state.width : 0;
+      const maxH = state ? state.height : 0;
+      let x = Math.max(0, Math.round(Number($('cropX').value) || 0));
+      let y = Math.max(0, Math.round(Number($('cropY').value) || 0));
+      let w = Math.round(Number($('cropW').value) || 0);
+      let h = Math.round(Number($('cropH').value) || 0);
+      w = Math.min(Math.max(1, w), maxW - x);
+      h = Math.min(Math.max(1, h), maxH - y);
+      return { x, y, w, h };
+    }
+
+    function drawRect() {
+      if (!state) return;
+      const { x, y, w, h } = getCrop();
+      const canvas = $('cropCanvas');
+      const scaleX = canvas.width / state.width;
+      const scaleY = canvas.height / state.height;
+      const rect = $('cropRect');
+      rect.style.display = 'block';
+      rect.style.left = (x * scaleX) + 'px';
+      rect.style.top = (y * scaleY) + 'px';
+      rect.style.width = (w * scaleX) + 'px';
+      rect.style.height = (h * scaleY) + 'px';
+    }
+
+    ['cropX', 'cropY', 'cropW', 'cropH'].forEach(id => $(id).addEventListener('input', drawRect));
+
+    /* ---------- 鼠标拖拽框选 ---------- */
+    const stage = $('cropStage');
+    let dragStart = null;
+
+    stage.addEventListener('mousedown', (e) => {
+      if (!state) return;
+      const canvas = $('cropCanvas');
+      const rect = canvas.getBoundingClientRect();
+      const scale = canvas.width / rect.width; // 显示坐标 → 画布坐标
+      dragStart = { x: (e.clientX - rect.left) * scale, y: (e.clientY - rect.top) * scale };
+      e.preventDefault();
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!dragStart || !state) return;
+      const canvas = $('cropCanvas');
+      const rect = canvas.getBoundingClientRect();
+      const scale = canvas.width / rect.width;
+      const cur = { x: (e.clientX - rect.left) * scale, y: (e.clientY - rect.top) * scale };
+      const x = Math.max(0, Math.min(dragStart.x, cur.x, state.width));
+      const y = Math.max(0, Math.min(dragStart.y, cur.y, state.height));
+      const w = Math.min(state.width - x, Math.abs(cur.x - dragStart.x));
+      const h = Math.min(state.height - y, Math.abs(cur.y - dragStart.y));
+      $('cropX').value = Math.round(x);
+      $('cropY').value = Math.round(y);
+      $('cropW').value = Math.round(w);
+      $('cropH').value = Math.round(h);
+      drawRect();
+    });
+
+    window.addEventListener('mouseup', () => { dragStart = null; });
+
+    /* ---------- 裁剪导出 ---------- */
+    $('btnCropApply').addEventListener('click', async () => {
+      if (!state) return;
+      const { x, y, w, h } = getCrop();
+      const out = document.createElement('canvas');
+      out.width = w;
+      out.height = h;
+      out.getContext('2d').drawImage(state.img, x, y, w, h, 0, 0, w, h);
+      const mime = $('cropFormat').value;
+      try {
+        cropResultBlob = await IMG.canvasToBlob(out, mime, 0.92);
+        const url = URL.createObjectURL(cropResultBlob);
+        const img = $('cropResultImg');
+        if (img.src.startsWith('blob:')) URL.revokeObjectURL(img.src);
+        img.src = url;
+        $('cropResultBox').hidden = false;
+        $('btnCropDownload').hidden = false;
+        $('cropResultInfo').textContent =
+          `已裁剪 ${w} × ${h}px，输出 ${IMG.formatBytes(cropResultBlob.size)}`;
+      } catch (e) {
+        toast(e.message || '裁剪失败');
+      }
+    });
+
+    $('btnCropDownload').addEventListener('click', () => {
+      if (!cropResultBlob) return;
+      IMG.downloadBlob(cropResultBlob, `${IMG.baseName(state.name)}-crop.${IMG.extOf($('cropFormat').value)}`);
+    });
+  </script>
+</body>
+</html>

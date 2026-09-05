@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>图片加水印 - Web IT Tool Box</title>
+  <meta name="description" content="在线给图片添加文字水印：自定义文字、字号、颜色、透明度与九宫格位置，支持平铺模式，全部本地处理。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💧</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <script src="/assets/js/common.js"></script>
+  <script src="/assets/js/image-utils.js"></script>
+  <style>
+    .pos-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 44px);
+      grid-template-rows: repeat(3, 34px);
+      gap: 5px;
+    }
+    .pos-grid button {
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      border-radius: 7px;
+      cursor: pointer;
+      font-family: inherit;
+      color: var(--muted);
+      transition: all 0.12s;
+    }
+    .pos-grid button:hover { border-color: var(--accent); }
+    .pos-grid button.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+  </style>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / 图片加水印</div>
+      <h1><span class="icon-tile cat-design">💧</span>图片加水印</h1>
+      <p class="sub">给图片添加文字水印，支持位置、字号、透明度与平铺模式，全部本地处理，图片不上传。</p>
+    </div>
+
+    <section class="dropzone" id="wmDrop">
+      <span class="dz-icon">🖼️</span>
+      <span class="dz-main">点击选择或拖入图片</span>
+      <span class="dz-sub">PNG / JPEG / WebP</span>
+      <input type="file" id="wmFile" accept="image/*" hidden>
+    </section>
+
+    <section class="panel" id="wmPanel" hidden>
+      <div class="panel-title"><span class="dot"></span>水印设置</div>
+
+      <label class="field-label" for="wmText">水印文字</label>
+      <input type="text" id="wmText" value="© My Watermark" spellcheck="false">
+
+      <div class="io-grid" style="margin-top:14px;">
+        <div>
+          <div class="range-row">
+            <label for="wmSize">字号</label>
+            <input type="range" id="wmSize" min="10" max="200" value="32">
+            <span class="range-val" id="wmSizeVal">32px</span>
+          </div>
+          <div class="range-row" style="margin-top:10px;">
+            <label for="wmAlpha">透明度</label>
+            <input type="range" id="wmAlpha" min="5" max="100" value="50">
+            <span class="range-val" id="wmAlphaVal">50%</span>
+          </div>
+          <div class="range-row" style="margin-top:10px;">
+            <label for="wmRotate">旋转</label>
+            <input type="range" id="wmRotate" min="-90" max="90" value="0">
+            <span class="range-val" id="wmRotateVal">0°</span>
+          </div>
+          <div class="unit-switch" style="margin-top:12px;">
+            <input type="color" id="wmColor" value="#ffffff" style="width:52px;height:34px;padding:2px;cursor:pointer;">
+            <label class="radio-label"><input type="checkbox" id="wmTile"> 平铺整个图片</label>
+          </div>
+        </div>
+        <div>
+          <div class="field-label">位置（不平铺时生效）</div>
+          <div class="pos-grid" id="wmPos">
+            <button type="button" data-pos="tl">↖</button><button type="button" data-pos="tc">↑</button><button type="button" data-pos="tr">↗</button>
+            <button type="button" data-pos="ml">←</button><button type="button" data-pos="mc" class="active">●</button><button type="button" data-pos="mr">→</button>
+            <button type="button" data-pos="bl">↙</button><button type="button" data-pos="bc">↓</button><button type="button" data-pos="br">↘</button>
+          </div>
+          <div class="range-row" style="margin-top:14px;">
+            <label for="wmMargin">边距</label>
+            <input type="range" id="wmMargin" min="0" max="200" value="20">
+            <span class="range-val" id="wmMarginVal">20px</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="wmOutPanel" hidden>
+      <div class="panel-title"><span class="dot"></span>预览与导出</div>
+      <div class="preview-box">
+        <canvas id="wmCanvas" style="max-width:100%;"></canvas>
+      </div>
+      <div class="json-toolbar" style="margin-top:14px;">
+        <select id="wmFormat">
+          <option value="image/png">PNG（无损，支持透明）</option>
+          <option value="image/jpeg">JPEG（体积小）</option>
+          <option value="image/webp">WebP（推荐）</option>
+        </select>
+        <button class="btn primary" id="btnWmDownload">⬇️ 下载</button>
+      </div>
+      <p class="hint" id="wmInfo"></p>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    let state = null;
+
+    IMG.setupDrop($('wmDrop'), loadFile);
+    $('wmDrop').addEventListener('click', () => $('wmFile').click());
+    $('wmFile').addEventListener('change', (e) => { if (e.target.files[0]) loadFile(e.target.files[0]); });
+
+    async function loadFile(file) {
+      try {
+        state = await IMG.loadImageFile(file);
+        $('wmPanel').hidden = false;
+        $('wmOutPanel').hidden = false;
+        render();
+      } catch (e) {
+        toast(e.message || '图片加载失败');
+      }
+    }
+
+    function hexToRgb(hex) {
+      const n = parseInt(hex.slice(1), 16);
+      return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    }
+
+    function render() {
+      if (!state) return;
+      const canvas = $('wmCanvas');
+      const MAXW = 900;
+      const scale = Math.min(1, MAXW / state.width);
+      canvas.width = Math.round(state.width * scale);
+      canvas.height = Math.round(state.height * scale);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(state.img, 0, 0, canvas.width, canvas.height);
+
+      const text = $('wmText').value || '水印';
+      const fontSize = Number($('wmSize').value) * scale;
+      const alpha = Number($('wmAlpha').value) / 100;
+      const rotate = Number($('wmRotate').value) * Math.PI / 180;
+      const margin = Number($('wmMargin').value) * scale;
+      const tile = $('wmTile').checked;
+      const [r, g, b] = hexToRgb($('wmColor').value);
+
+      ctx.save();
+      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+      ctx.font = `600 ${fontSize}px sans-serif`;
+      ctx.textBaseline = 'middle';
+      const m = ctx.measureText(text);
+
+      if (tile) {
+        const stepX = m.width + fontSize * 1.2;
+        const stepY = fontSize * 3;
+        for (let yy = -canvas.height; yy < canvas.height * 2; yy += stepY) {
+          for (let xx = -canvas.width; xx < canvas.width * 2; xx += stepX) {
+            ctx.save();
+            ctx.translate(xx, yy);
+            ctx.rotate(rotate || -0.4); // 平铺默认给一点斜度
+            ctx.fillText(text, 0, 0);
+            ctx.restore();
+          }
+        }
+      } else {
+        const pos = $('wmPos').querySelector('.active').dataset.pos;
+        const x = pos[1] === 'l' ? margin : pos[1] === 'c' ? (canvas.width - m.width) / 2 : canvas.width - m.width - margin;
+        const y = pos[0] === 't' ? margin + fontSize / 2 : pos[0] === 'm' ? canvas.height / 2 : canvas.height - margin - fontSize / 2;
+        ctx.save();
+        ctx.translate(x + m.width / 2, y);
+        ctx.rotate(rotate);
+        ctx.fillText(text, -m.width / 2, 0);
+        ctx.restore();
+      }
+      ctx.restore();
+
+      $('wmInfo').textContent = `原图 ${state.width} × ${state.height}px，${IMG.formatBytes(state.size)}（预览已缩放 ${Math.round(scale * 100)}%）`;
+      $('wmSizeVal').textContent = $('wmSize').value + 'px';
+      $('wmAlphaVal').textContent = $('wmAlpha').value + '%';
+      $('wmRotateVal').textContent = $('wmRotate').value + '°';
+      $('wmMarginVal').textContent = $('wmMargin').value + 'px';
+    }
+
+    ['wmText', 'wmSize', 'wmAlpha', 'wmRotate', 'wmColor', 'wmMargin'].forEach(id =>
+      $(id).addEventListener('input', render));
+    $('wmTile').addEventListener('change', render);
+
+    $('wmPos').addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      $('wmPos').querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
+      $('wmTile').checked = false;
+      render();
+    });
+
+    $('btnWmDownload').addEventListener('click', () => {
+      if (!state) return;
+      const mime = $('wmFormat').value;
+      // 导出按原始分辨率重绘
+      const out = document.createElement('canvas');
+      out.width = state.width;
+      out.height = state.height;
+      const ctx = out.getContext('2d');
+      ctx.drawImage(state.img, 0, 0);
+
+      const text = $('wmText').value || '水印';
+      const fontSize = Number($('wmSize').value);
+      const alpha = Number($('wmAlpha').value) / 100;
+      const rotate = Number($('wmRotate').value) * Math.PI / 180;
+      const margin = Number($('wmMargin').value);
+      const tile = $('wmTile').checked;
+      const [r, g, b] = hexToRgb($('wmColor').value);
+
+      ctx.save();
+      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+      ctx.font = `600 ${fontSize}px sans-serif`;
+      ctx.textBaseline = 'middle';
+      const m = ctx.measureText(text);
+
+      if (tile) {
+        const stepX = m.width + fontSize * 1.2;
+        const stepY = fontSize * 3;
+        for (let yy = -out.height; yy < out.height * 2; yy += stepY) {
+          for (let xx = -out.width; xx < out.width * 2; xx += stepX) {
+            ctx.save();
+            ctx.translate(xx, yy);
+            ctx.rotate(rotate || -0.4);
+            ctx.fillText(text, 0, 0);
+            ctx.restore();
+          }
+        }
+      } else {
+        const pos = $('wmPos').querySelector('.active').dataset.pos;
+        const x = pos[1] === 'l' ? margin : pos[1] === 'c' ? (out.width - m.width) / 2 : out.width - m.width - margin;
+        const y = pos[0] === 't' ? margin + fontSize / 2 : pos[0] === 'm' ? out.height / 2 : out.height - margin - fontSize / 2;
+        ctx.save();
+        ctx.translate(x + m.width / 2, y);
+        ctx.rotate(rotate);
+        ctx.fillText(text, -m.width / 2, 0);
+        ctx.restore();
+      }
+      ctx.restore();
+
+      out.toBlob((blob) => {
+        if (!blob) { toast('导出失败'); return; }
+        IMG.downloadBlob(blob, `${IMG.baseName(state.name)}-watermark.${IMG.extOf(mime)}`);
+      }, mime, 0.92);
+    });
+  </script>
+</body>
+</html>

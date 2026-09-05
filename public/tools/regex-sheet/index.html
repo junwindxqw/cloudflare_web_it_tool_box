@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>正则表达式速查 - Web IT Tool Box</title>
+  <meta name="description" content="正则表达式速查表：常用校验正则（手机号、邮箱、URL、IP 等）与语法要点分类整理，点击即复制，配合正则测试工具使用。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📖</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / 正则表达式速查</div>
+      <h1><span class="icon-tile cat-qa">📖</span>正则表达式速查</h1>
+      <p class="sub">常用正则与语法要点，点击任意正则即可复制，可粘贴到<a href="/tools/regex/">正则测试</a>工具中验证。</p>
+    </div>
+
+    <section class="panel">
+      <input type="text" id="reSearch" placeholder="搜索正则或说明，如：手机号、邮箱、日期…" autocomplete="off" spellcheck="false">
+    </section>
+
+    <div id="reGroups"></div>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    const GROUPS = [
+      {
+        name: '✅ 常用校验（中国场景）', items: [
+          ['/^1[3-9]\\d{9}$/', '中国大陆手机号（11 位，13x-19x）'],
+          ['/^[1-9]\\d{5}(18|19|20)\\d{2}(0[1-9]|1[0-2])(0[1-9]|[12]\\d|3[01])\\d{3}[\\dXx]$/', '18 位身份证号（格式校验，不含校验位验证）'],
+          ['/^[1-9]\\d{4,10}$/', 'QQ 号（5-11 位数字）'],
+          ['/^[\\u4e00-\\u9fa5]{2,4}$/', '2-4 个汉字（中文姓名）'],
+          ['/^[京津沪渝冀晋辽吉黑苏浙皖闽赣鲁豫鄂湘粤桂琼川贵云陕甘青蒙藏宁新军港澳]{1}[A-HJ-NP-Z]{1}[A-HJ-NP-Z0-9]{4}[A-HJ-NP-Z0-9挂学警港澳]{1}$/', '普通燃油车牌号'],
+        ]
+      },
+      {
+        name: '🌐 网络与地址', items: [
+          ['/^(https?:\\/\\/)?([\\w.-]+)\\.([a-z]{2,6})(\\/[\\w\\-./?%&=]*)?$/i', 'URL（宽松匹配）'],
+          ['/^(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3}$/', 'IPv4 地址（每段 0-255）'],
+          ['/^(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$/', 'IPv6 地址（完整格式）'],
+          ['/^[a-zA-Z0-9][a-zA-Z0-9-]{0,61}[a-zA-Z0-9](\\.[a-zA-Z]{2,})+$/', '域名'],
+          ['/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$/', '邮箱地址（常用宽松版）'],
+          ['/^((2[0-4]\\d|25[0-5]|[01]?\\d\\d?)\\.){3}(2[0-4]\\d|25[0-5]|[01]?\\d\\d?)(\\/(\\d|[12]\\d|3[0-2]))?$/', 'IPv4 CIDR（含 /24 前缀）'],
+        ]
+      },
+      {
+        name: '📅 日期与时间', items: [
+          ['/^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$/', '日期 YYYY-MM-DD（格式校验）'],
+          ['/^(0[1-9]|1\\d|2[0-3]):(0\\d|[1-5]\\d):(0\\d|[1-5]\\d)$/', '时间 HH:mm:ss'],
+          ['/^(?:(?!0000)[0-9]{4}-(?:(?:0[1-9]|1[0-2])-(?:0[1-9]|1[0-9]|2[0-8])|(?:0[13-9]|1[0-2])-(?:29|30)|(?:0[13578]|1[02])-31)|(?:[0-9]{2}(?:0[48]|[2468][048]|[13579][26])|(?:0[48]|[13579][26]00))-02-29)$/', '日期带闰年判断'],
+          ['/^(19|20)\\d{2}年(0?[1-9]|1[0-2])月(0?[1-9]|[12]\\d|3[01])日$/', '中文日期（2024年1月1日）'],
+        ]
+      },
+      {
+        name: '🔢 数字与格式', items: [
+          ['/^-?\\d+$/', '整数'],
+          ['/^-?\\d+\\.\\d+$/', '小数'],
+          ['/^[0-9]{6}$/', '6 位数字验证码'],
+          ['/^(?:[1-9]\\d{0,2})(,\\d{3})*$/', '千分位数字（1,234,567）'],
+          ['/^[1-9]\\d*(\\.\\d{1,2})?$|^0\\.\\d{1,2}$/', '金额（最多两位小数）'],
+          ['/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/', 'UUID（标准格式）'],
+          ['/^[0-9a-fA-F]{32}$/', 'MD5（32 位十六进制）'],
+          ['/^[0-9a-zA-Z_-]{6,16}$/', '6-16 位用户名（字母数字下划线连字符）'],
+          ['/^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d).{8,}$/', '强密码（含大小写与数字，8 位以上）'],
+        ]
+      },
+      {
+        name: '🔤 字符与语法要点', items: [
+          ['[abc]', '字符集合：a、b 或 c'],
+          ['[^abc]', '否定字符集：除 a、b、c 以外'],
+          ['[a-z]', '范围：小写字母'],
+          ['.', '任意字符（换行符除外）'],
+          ['\\d \\w \\s', '数字 / 单词字符 [A-Za-z0-9_] / 空白'],
+          ['\\D \\W \\S', '以上三者的否定'],
+          ['^ $', '行首 / 行尾（m 标志下为每行）'],
+          ['\\b', '单词边界'],
+          ['a* a+ a?', '量词：0+ / 1+ / 0 或 1 次'],
+          ['a{2} a{2,} a{2,5}', '量词：恰好 2 / 至少 2 / 2 到 5 次'],
+          ['abc|def', '或'],
+          ['(abc)', '捕获分组'],
+          ['(?:abc)', '非捕获分组'],
+          ['(?<year>\\d{4})', '命名捕获组（ES2018）'],
+          ['(?=x) (?!x)', '正向先行断言 / 负向先行断言'],
+          ['(?<=x) (?<!x)', '正向后行断言 / 负向后行断言（ES2018）'],
+          ['g i m s u y', '标志：全局 / 忽略大小写 / 多行 / dotAll / Unicode / 粘性'],
+        ]
+      },
+      {
+        name: '💻 代码中的用法', items: [
+          ['/pattern/flags', '字面量写法：const re = /ab+c/gi;'],
+          ['new RegExp("pattern", "flags")', '构造函数（模式来自字符串变量时使用）'],
+          ['re.test(str)', '是否匹配：返回布尔值'],
+          ['str.match(re)', '返回匹配数组（g 标志返回全部）'],
+          ['str.replace(re, "x")', '替换（g 标志替换全部）'],
+          ['str.split(re)', '按正则切分为数组'],
+          ['re.exec(str)', '带分组详情的逐次匹配'],
+        ]
+      },
+    ];
+
+    function render(filter) {
+      const q = (filter || '').trim().toLowerCase();
+      const wrap = $('reGroups');
+      wrap.innerHTML = '';
+      let shown = 0;
+
+      GROUPS.forEach(g => {
+        const items = g.items.filter(([re, desc]) =>
+          !q || re.toLowerCase().includes(q) || desc.toLowerCase().includes(q));
+        if (!items.length) return;
+        shown += items.length;
+
+        const panel = document.createElement('section');
+        panel.className = 'panel';
+        const title = document.createElement('div');
+        title.className = 'panel-title';
+        title.innerHTML = `<span class="dot"></span>${g.name}`;
+        panel.appendChild(title);
+
+        items.forEach(([re, desc]) => {
+          const row = document.createElement('div');
+          row.className = 'nx';
+          row.style.cursor = 'pointer';
+          row.title = '点击复制';
+          row.innerHTML =
+            `<span style="flex:1;word-break:break-all;">${re.replace(/</g, '&lt;')}</span>` +
+            `<span style="font-size:12px;color:var(--muted);font-family:var(--font);flex-shrink:0;">${desc}</span>`;
+          row.addEventListener('click', async () => {
+            try {
+              await navigator.clipboard.writeText(re);
+              toast('已复制：' + (re.length > 24 ? re.slice(0, 24) + '…' : re));
+            } catch { toast('复制失败，请手动选择复制'); }
+          });
+          panel.appendChild(row);
+        });
+        wrap.appendChild(panel);
+      });
+
+      if (!shown) wrap.innerHTML = '<section class="panel"><p class="hint">没有匹配项，换个关键词试试。</p></section>';
+    }
+
+    $('reSearch').addEventListener('input', (e) => render(e.target.value));
+    render('');
+  </script>
+</body>
+</html>

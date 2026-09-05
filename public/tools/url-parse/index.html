@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>URL 解析器 - Web IT Tool Box</title>
+  <meta name="description" content="在线解析 URL：协议、主机、端口、路径、查询参数、哈希逐项拆解，支持批量参数表格查看，全部本地完成。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧩</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / URL 解析器</div>
+      <h1><span class="icon-tile cat-dev">🧩</span>URL 解析器</h1>
+      <p class="sub">把一个 URL 拆解为协议、主机、路径、查询参数等组成部分，方便查看与调试。</p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>输入 URL</div>
+      <input type="text" id="urlInput" class="mono" placeholder="例如：https://user:pass@example.com:8080/api/list?page=2&size=10#top" autocomplete="off" spellcheck="false">
+      <p class="hint" id="urlHint">粘贴完整 URL（需含协议），自动解析。</p>
+    </section>
+
+    <section class="panel" id="urlResult" hidden>
+      <div class="panel-title"><span class="dot"></span>解析结果</div>
+      <div class="result-list" id="urlParts"></div>
+    </section>
+
+    <section class="panel" id="queryPanel" hidden>
+      <div class="panel-title"><span class="dot"></span>查询参数（searchParams）</div>
+      <div class="result-list" id="queryList"></div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.copy-btn');
+      if (!btn) return;
+      const text = $(btn.dataset.copyTarget)?.textContent ?? '';
+      if (!text || text === '（空）') return;
+      try {
+        await navigator.clipboard.writeText(text);
+        toast('已复制到剪贴板');
+      } catch {
+        toast('复制失败，请手动选择复制');
+      }
+      btn.classList.add('copied');
+      setTimeout(() => btn.classList.remove('copied'), 1200);
+    });
+
+    function escapeHtml(s) {
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function addRow(list, label, value, id) {
+      const row = document.createElement('div');
+      row.className = 'result-row';
+      row.innerHTML =
+        `<span class="r-label" style="width:110px;">${label}</span>` +
+        `<span class="r-value"${id ? ` id="${id}"` : ''}>${escapeHtml(value)}</span>` +
+        `<button class="copy-btn" data-copy-target="${id || ''}"${id ? '' : ' hidden'}>复制</button>`;
+      if (!id) row.querySelector('.copy-btn').remove();
+      list.appendChild(row);
+    }
+
+    function parseUrl() {
+      const raw = $('urlInput').value.trim();
+      const hint = $('urlHint');
+      const result = $('urlResult');
+      const queryPanel = $('queryPanel');
+      $('urlParts').innerHTML = '';
+      $('queryList').innerHTML = '';
+
+      if (!raw) {
+        result.hidden = true;
+        queryPanel.hidden = true;
+        hint.textContent = '粘贴完整 URL（需含协议），自动解析。';
+        hint.classList.remove('err');
+        return;
+      }
+
+      let u;
+      let autoHttps = false;
+      try {
+        u = new URL(raw);
+      } catch {
+        // 常见场景：用户省略协议
+        try {
+          u = new URL('https://' + raw);
+          autoHttps = true;
+        } catch {
+          hint.textContent = 'URL 格式无效，请检查后重试。';
+          hint.classList.add('err');
+          result.hidden = true;
+          queryPanel.hidden = true;
+          return;
+        }
+      }
+
+      hint.classList.remove('err');
+      hint.textContent = autoHttps
+        ? '未检测到协议，已按 https:// 前缀解析。'
+        : '解析成功。';
+
+      const parts = $('urlParts');
+      addRow(parts, '完整 URL', u.href, 'pHref');
+      addRow(parts, '协议', u.protocol.replace(':', ''));
+      addRow(parts, '登录名', u.username || '（空）');
+      addRow(parts, '密码', u.password || '（空）');
+      addRow(parts, '主机名', u.hostname, 'pHost');
+      addRow(parts, '端口', u.port || (u.protocol === 'https:' ? '443（默认）' : u.protocol === 'http:' ? '80（默认）' : '（空）'));
+      addRow(parts, '路径', u.pathname, 'pPath');
+      addRow(parts, '查询串', u.search || '（空）', 'pSearch');
+      addRow(parts, '哈希', u.hash || '（空）', 'pHash');
+      addRow(parts, 'Origin', u.origin, 'pOrigin');
+      addRow(parts, '文件名', u.pathname.split('/').filter(Boolean).pop() || '（无）');
+      addRow(parts, '扩展名', (u.pathname.match(/\.([a-zA-Z0-9]+)$/) || [])[1] || '（无）');
+      result.hidden = false;
+
+      const params = Array.from(u.searchParams.entries());
+      if (params.length) {
+        const list = $('queryList');
+        params.forEach(([k, v], i) => {
+          const row = document.createElement('div');
+          row.className = 'result-row';
+          row.innerHTML =
+            `<span class="r-label">${i + 1}</span>` +
+            `<span class="r-value"><strong>${escapeHtml(decodeURIComponent(k))}</strong> = ${escapeHtml(v)}</span>`;
+          list.appendChild(row);
+        });
+        queryPanel.hidden = false;
+      } else {
+        queryPanel.hidden = true;
+      }
+    }
+
+    $('urlInput').addEventListener('input', parseUrl);
+  </script>
+</body>
+</html>

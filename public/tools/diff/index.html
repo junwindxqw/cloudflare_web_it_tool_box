@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>文本对比 Diff - Web IT Tool Box</title>
+  <meta name="description" content="在线文本差异对比：按行比较两段文本，高亮新增与删除行，统计差异行数，全部本地计算。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🆚</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <style>
+    .diff-view {
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.7;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 0;
+      max-height: 480px;
+      overflow: auto;
+      white-space: pre;
+    }
+    .diff-line { padding: 0 14px; }
+    .diff-line .ln {
+      display: inline-block;
+      width: 34px;
+      color: var(--muted);
+      user-select: none;
+    }
+    .diff-line.del { background: color-mix(in srgb, var(--danger) 14%, transparent); }
+    .diff-line.add { background: color-mix(in srgb, var(--ok) 16%, transparent); }
+    .diff-line.del::before { content: '- '; color: var(--danger); font-weight: 700; }
+    .diff-line.add::before { content: '+ '; color: var(--ok); font-weight: 700; }
+    .diff-line.same::before { content: '  '; }
+    .legend { display: flex; gap: 16px; margin-top: 10px; font-size: 12.5px; color: var(--text-2); }
+    .legend .sw {
+      display: inline-block; width: 12px; height: 12px; border-radius: 3px;
+      vertical-align: -1px; margin-right: 5px;
+    }
+  </style>
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / 文本对比</div>
+      <h1><span class="icon-tile cat-dev">🆚</span>文本对比 Diff</h1>
+      <p class="sub">按行比较两段文本差异，红色为删除、绿色为新增，全部在浏览器本地计算。</p>
+    </div>
+
+    <section class="panel">
+      <div class="io-grid">
+        <div>
+          <div class="io-label"><span>原文本 A</span></div>
+          <textarea id="diffA" class="json-input" style="min-height:180px;" placeholder="粘贴原文本…" spellcheck="false"></textarea>
+        </div>
+        <div>
+          <div class="io-label"><span>新文本 B</span></div>
+          <textarea id="diffB" class="json-input" style="min-height:180px;" placeholder="粘贴新文本…" spellcheck="false"></textarea>
+        </div>
+      </div>
+      <div class="unit-switch">
+        <label class="radio-label"><input type="checkbox" id="diffIgnoreSpace"> 忽略行首尾空白</label>
+        <label class="radio-label"><input type="checkbox" id="diffIgnoreEmpty"> 忽略空行</label>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>差异结果 <span class="stat-bar" style="margin:0;" id="diffStats"></span></div>
+      <div class="diff-view" id="diffOut"><span style="color:var(--muted);padding:0 14px;">两侧都输入内容后自动对比</span></div>
+      <div class="legend">
+        <span><span class="sw" style="background:color-mix(in srgb, var(--danger) 40%, transparent);"></span>删除（仅 A 有）</span>
+        <span><span class="sw" style="background:color-mix(in srgb, var(--ok) 45%, transparent);"></span>新增（仅 B 有）</span>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    /* ---------- LCS 行级 Diff ---------- */
+    // 返回操作序列：[{t:'same'|'del'|'add', line, la, lb}]
+    function diffLines(A, B) {
+      const n = A.length, m = B.length;
+      // LCS 长度表（滚动数组会丢路径，此处用全表；5000 行内可用）
+      const dp = new Uint32Array((n + 1) * (m + 1));
+      const w = m + 1;
+      for (let i = n - 1; i >= 0; i--) {
+        for (let j = m - 1; j >= 0; j--) {
+          dp[i * w + j] = A[i] === B[j]
+            ? dp[(i + 1) * w + j + 1] + 1
+            : Math.max(dp[(i + 1) * w + j], dp[i * w + j + 1]);
+        }
+      }
+      const ops = [];
+      let i = 0, j = 0;
+      while (i < n && j < m) {
+        if (A[i] === B[j]) { ops.push({ t: 'same', line: A[i], la: i + 1, lb: j + 1 }); i++; j++; }
+        else if (dp[(i + 1) * w + j] >= dp[i * w + j + 1]) { ops.push({ t: 'del', line: A[i], la: i + 1 }); i++; }
+        else { ops.push({ t: 'add', line: B[j], lb: j + 1 }); j++; }
+      }
+      while (i < n) { ops.push({ t: 'del', line: A[i], la: i + 1 }); i++; }
+      while (j < m) { ops.push({ t: 'add', line: B[j], lb: j + 1 }); j++; }
+      return ops;
+    }
+
+    function escapeHtml(s) {
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    let renderSeq = 0;
+
+    function runDiff() {
+      const rawA = $('diffA').value.split('\n');
+      const rawB = $('diffB').value.split('\n');
+      const igSpace = $('diffIgnoreSpace').checked;
+      const igEmpty = $('diffIgnoreEmpty').checked;
+      const norm = (lines) => lines
+        .map(l => igSpace ? l.trim() : l)
+        .filter(l => igEmpty ? l !== '' : true);
+
+      const A = norm(rawA), B = norm(rawB);
+      const out = $('diffOut');
+      const stats = $('diffStats');
+      const mySeq = ++renderSeq;
+
+      if (!rawA.join('') && !rawB.join('')) {
+        out.innerHTML = '<span style="color:var(--muted);padding:0 14px;">两侧都输入内容后自动对比</span>';
+        stats.innerHTML = '';
+        return;
+      }
+
+      // 防止极端规模卡死
+      if (A.length * B.length > 25000000) {
+        out.innerHTML = '<span style="color:var(--danger);padding:0 14px;">文本过大，请缩减后重试。</span>';
+        stats.innerHTML = '';
+        return;
+      }
+
+      const ops = diffLines(A, B);
+      const delCount = ops.filter(o => o.t === 'del').length;
+      const addCount = ops.filter(o => o.t === 'add').length;
+
+      const frag = document.createDocumentFragment();
+      ops.forEach(op => {
+        const div = document.createElement('div');
+        div.className = 'diff-line ' + op.t;
+        const ln = op.t === 'del' ? `A ${op.la}` : op.t === 'add' ? `B ${op.lb}` : `${op.la}`;
+        div.innerHTML = `<span class="ln">${ln}</span>` + escapeHtml(op.line === '' ? ' ' : op.line);
+        frag.appendChild(div);
+      });
+      out.innerHTML = '';
+      out.appendChild(frag);
+      if (mySeq !== renderSeq) return;
+      stats.innerHTML =
+        `共 ${ops.length} 行　` +
+        `<span class="bad">删除 ${delCount}</span>　` +
+        `<span class="ok">新增 ${addCount}</span>`;
+    }
+
+    ['diffA', 'diffB'].forEach(id => $(id).addEventListener('input', runDiff));
+    ['diffIgnoreSpace', 'diffIgnoreEmpty'].forEach(id => $(id).addEventListener('change', runDiff));
+  </script>
+</body>
+</html>

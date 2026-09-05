@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>文本去重排序 - Web IT Tool Box</title>
+  <meta name="description" content="在线文本行去重与排序：模拟 sort/uniq 组合，支持升序降序、按长度排序、忽略大小写去重、去空行与反转，全部本地完成。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧹</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <script src="/assets/js/common.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / 文本去重排序</div>
+      <h1><span class="icon-tile cat-ops">🧹</span>文本去重排序</h1>
+      <p class="sub">相当于 <code style="font-family:var(--mono);">sort | uniq</code> 的可视化版本：去重、排序、去空行一次完成。</p>
+    </div>
+
+    <section class="panel">
+      <div class="panel-title"><span class="dot"></span>处理选项</div>
+      <div class="unit-switch">
+        <span class="field-label" style="margin:0;">排序：</span>
+        <label class="radio-label"><input type="radio" name="sortMode" value="none" checked> 保持原序</label>
+        <label class="radio-label"><input type="radio" name="sortMode" value="asc"> 字典升序 A→Z</label>
+        <label class="radio-label"><input type="radio" name="sortMode" value="desc"> 字典降序 Z→A</label>
+        <label class="radio-label"><input type="radio" name="sortMode" value="lenAsc"> 短→长</label>
+        <label class="radio-label"><input type="radio" name="sortMode" value="lenDesc"> 长→短</label>
+        <label class="radio-label"><input type="radio" name="sortMode" value="shuffle"> 随机打乱</label>
+      </div>
+      <div class="unit-switch">
+        <label class="radio-label"><input type="checkbox" id="optDedupe" checked> 去除重复行</label>
+        <label class="radio-label"><input type="checkbox" id="optIgnoreCase"> 去重时忽略大小写</label>
+        <label class="radio-label"><input type="checkbox" id="optTrim" checked> 去除行首尾空白</label>
+        <label class="radio-label"><input type="checkbox" id="optEmpty" checked> 去除空行</label>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="io-grid">
+        <div>
+          <div class="io-label"><span>输入（每行一条）</span><span class="stat-bar" style="margin:0;" id="inStats"></span></div>
+          <textarea id="sortInput" class="json-input" style="min-height:240px;" placeholder="banana&#10;apple&#10;banana&#10;cherry" spellcheck="false"></textarea>
+        </div>
+        <div>
+          <div class="io-label"><span>输出</span><button class="copy-btn" data-copy-input="sortOutput">复制</button></div>
+          <textarea id="sortOutput" class="json-input" style="min-height:240px;" readonly spellcheck="false"></textarea>
+        </div>
+      </div>
+      <div class="stat-bar" id="outStats"></div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.copy-btn');
+      if (!btn) return;
+      const src = $(btn.dataset.copyInput);
+      const text = src ? src.value : '';
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        toast('已复制到剪贴板');
+      } catch {
+        toast('复制失败，请手动选择复制');
+      }
+      btn.classList.add('copied');
+      setTimeout(() => btn.classList.remove('copied'), 1200);
+    });
+
+    function collator() {
+      // 中文按拼音排序
+      return new Intl.Collator('zh-Hans-CN', { sensitivity: 'base', numeric: true });
+    }
+
+    function process() {
+      const rawLines = $('sortInput').value.split('\n');
+      const trim = $('optTrim').checked;
+      const dropEmpty = $('optEmpty').checked;
+      const dedupe = $('optDedupe').checked;
+      const ignoreCase = $('optIgnoreCase').checked;
+      const mode = document.querySelector('input[name="sortMode"]:checked').value;
+
+      $('inStats').textContent = `输入 ${rawLines.length} 行`;
+
+      let lines = rawLines.map(l => (trim ? l.trim() : l));
+      if (dropEmpty) lines = lines.filter(l => l !== '');
+
+      if (dedupe) {
+        const seen = new Set();
+        lines = lines.filter(l => {
+          const key = ignoreCase ? l.toLowerCase() : l;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      }
+
+      const cmp = collator().compare;
+      switch (mode) {
+        case 'asc': lines.sort(cmp); break;
+        case 'desc': lines.sort((a, b) => cmp(b, a)); break;
+        case 'lenAsc': lines.sort((a, b) => a.length - b.length || cmp(a, b)); break;
+        case 'lenDesc': lines.sort((a, b) => b.length - a.length || cmp(a, b)); break;
+        case 'shuffle':
+          for (let i = lines.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [lines[i], lines[j]] = [lines[j], lines[i]];
+          }
+          break;
+      }
+
+      $('sortOutput').value = lines.join('\n');
+      const removed = rawLines.length - lines.length;
+      $('outStats').innerHTML =
+        `<span>输出 <strong>${lines.length}</strong> 行</span>` +
+        (removed > 0 ? `<span class="warn">清理 ${removed} 行（重复/空白）</span>` : '') +
+        `<span>共 ${new Set(lines).size} 个唯一值</span>`;
+    }
+
+    $('sortInput').addEventListener('input', process);
+    document.querySelectorAll('.panel input[type="checkbox"], .panel input[type="radio"]').forEach(el =>
+      el.addEventListener('change', process));
+
+    $('sortInput').value = 'banana\napple\nBanana\n  cherry  \napple\n\ncherry';
+    process();
+  </script>
+</body>
+</html>

@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>图片转 Base64 - Web IT Tool Box</title>
+  <meta name="description" content="在线图片转 Base64 Data URL：拖入图片即得 data:image/... 编码，显示体积变化与预览，可复制纯 Base64，全部本地完成。">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🖼️</text></svg>">
+  <link rel="stylesheet" href="/assets/css/style.css">
+  <script src="/assets/js/common.js"></script>
+  <script src="/assets/js/image-utils.js"></script>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a class="logo-link" href="/">
+        <span class="logo-icon">🧰</span>
+        <span>Web IT Tool Box</span>
+      </a>
+      <span class="header-spacer"></span>
+      <a class="header-nav" href="/">🏠 返回工具箱</a>
+    </div>
+  </header>
+
+  <main class="narrow">
+
+    <div class="page-head">
+      <div class="crumbs"><a href="/">工具箱</a> / 图片转 Base64</div>
+      <h1><span class="icon-tile cat-design">🖼️</span>图片转 Base64</h1>
+      <p class="sub">把图片编码为 Data URL（data:image/…;base64,…），可直接内联到 CSS / HTML 中，全部本地完成。</p>
+    </div>
+
+    <section class="dropzone" id="b64Drop">
+      <span class="dz-icon">🖼️</span>
+      <span class="dz-main">点击选择或拖入图片</span>
+      <span class="dz-sub">PNG / JPEG / WebP / GIF / SVG，建议小于 500KB</span>
+      <input type="file" id="b64File" accept="image/*" hidden>
+    </section>
+
+    <section class="panel" id="b64Panel" hidden>
+      <div class="panel-title"><span class="dot"></span>预览与统计</div>
+      <div class="compare-grid">
+        <div class="cmp">
+          <div class="cmp-label">原图预览</div>
+          <img id="b64Preview" alt="图片预览">
+          <p class="hint" id="b64Meta"></p>
+        </div>
+        <div class="cmp">
+          <div class="cmp-label">Data URL 渲染效果</div>
+          <img id="b64DataImg" alt="Data URL 渲染">
+          <p class="hint" id="b64SizeInfo"></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="b64OutPanel" hidden>
+      <div class="panel-title"><span class="dot"></span>编码结果</div>
+
+      <div class="io-label"><span>Data URL（完整，含 data: 前缀）</span><button class="copy-btn" data-copy-input="b64DataUrl">复制</button></div>
+      <textarea id="b64DataUrl" class="json-input" style="min-height:110px;" readonly spellcheck="false"></textarea>
+
+      <div class="io-label" style="margin-top:12px;"><span>纯 Base64（不含前缀）</span><button class="copy-btn" data-copy-input="b64Pure">复制</button></div>
+      <textarea id="b64Pure" class="json-input" style="min-height:110px;" readonly spellcheck="false"></textarea>
+
+      <div class="json-toolbar" style="margin-top:12px;">
+        <button class="btn" id="btnB64Css">生成 CSS 片段</button>
+        <button class="btn" id="btnB64Html">生成 HTML 片段</button>
+      </div>
+      <div class="json-output" id="b64Snippet" hidden></div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    基于 <a href="https://workers.cloudflare.com/" target="_blank" rel="noopener">Cloudflare Workers</a> 免费服务构建
+    <span class="sep">|</span>
+    <a href="https://github.com/junwindxqw/cloudflare_web_it_tool_box" target="_blank" rel="noopener">GitHub 开源</a>
+  </footer>
+
+  <div id="toast">已复制到剪贴板</div>
+
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+
+    let toastTimer = null;
+    function toast(msg) {
+      const el = $('toast');
+      el.textContent = msg;
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 1600);
+    }
+
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.copy-btn');
+      if (!btn) return;
+      const src = $(btn.dataset.copyInput);
+      const text = src ? src.value : '';
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        toast('已复制到剪贴板');
+      } catch {
+        toast('复制失败，请手动选择复制');
+      }
+      btn.classList.add('copied');
+      setTimeout(() => btn.classList.remove('copied'), 1200);
+    });
+
+    function readFileAsDataURL(file) {
+      return new Promise((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(fr.result);
+        fr.onerror = () => reject(new Error('文件读取失败'));
+        fr.readAsDataURL(file);
+      });
+    }
+
+    let dataUrl = '';
+
+    IMG.setupDrop($('b64Drop'), loadFile);
+    $('b64Drop').addEventListener('click', () => $('b64File').click());
+    $('b64File').addEventListener('change', (e) => { if (e.target.files[0]) loadFile(e.target.files[0]); });
+
+    async function loadFile(file) {
+      try {
+        dataUrl = await readFileAsDataURL(file);
+        const base64 = dataUrl.split(',')[1] || '';
+        $('b64Preview').src = dataUrl;
+        $('b64DataImg').src = dataUrl;
+        $('b64DataUrl').value = dataUrl;
+        $('b64Pure').value = base64;
+        $('b64Panel').hidden = false;
+        $('b64OutPanel').hidden = false;
+        $('b64Snippet').hidden = true;
+
+        const encodedBytes = base64.length;
+        const rawBytes = Math.round(encodedBytes * 3 / 4);
+        $('b64Meta').textContent =
+          `${file.name || '图片'} · ${file.type || '未知类型'} · 原始 ${IMG.formatBytes(file.size)}`;
+        $('b64SizeInfo').textContent =
+          `编码后约 ${IMG.formatBytes(encodedBytes)}（Base64 比原始二进制大约 ${Math.round((encodedBytes / Math.max(1, rawBytes) - 1) * 100)}%）`;
+      } catch (e) {
+        toast(e.message || '图片加载失败');
+      }
+    }
+
+    $('btnB64Css').addEventListener('click', () => {
+      if (!dataUrl) return;
+      $('b64Snippet').hidden = false;
+      $('b64Snippet').textContent = `.bg {\n  background-image: url("${dataUrl}");\n  background-size: contain;\n  background-repeat: no-repeat;\n}`;
+    });
+
+    $('btnB64Html').addEventListener('click', () => {
+      if (!dataUrl) return;
+      $('b64Snippet').hidden = false;
+      $('b64Snippet').textContent = `<img src="${dataUrl}" alt="">`;
+    });
+  </script>
+</body>
+</html>
